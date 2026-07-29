@@ -7,7 +7,7 @@ on:
     types: [completed]
 
 permissions:
-  actions: read
+  actions: write
   contents: write
 
 concurrency:
@@ -37,23 +37,54 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
+      - name: Wait for sibling crawler artifacts
+        if: github.event_name == 'workflow_run'
+        run: |
+          echo "Waiting 60s for sibling crawler artifacts to finish uploading..."
+          sleep 60
+
       - name: Download latest complete crawler artifacts
+        id: artifacts
         run: |
           mkdir -p data/raw/zol data/raw/jd
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          set +e
           python scripts/download_latest_crawler_artifact.py \
             --repo "$GITHUB_REPOSITORY" \
             --workflow crawl-zol.yml \
             --artifact-prefix zol-data- \
             --output data/raw/zol/latest.json \
-            --min-records 50
+            --min-records 50 \
+            2> >(tee "$RUNNER_TEMP/zol-artifact.err" >&2)
+          zol_status=$?
           python scripts/download_latest_crawler_artifact.py \
             --repo "$GITHUB_REPOSITORY" \
             --workflow crawl-jd.yml \
             --artifact-prefix jd-data- \
             --output data/raw/jd/latest.json \
-            --min-records 50
+            --min-records 50 \
+            2> >(tee "$RUNNER_TEMP/jd-artifact.err" >&2)
+          jd_status=$?
+          set -e
+
+          if [ "$zol_status" -ne 0 ] &&
+             [ "$jd_status" -ne 0 ] &&
+             grep -Fq "no unexpired artifact" "$RUNNER_TEMP/zol-artifact.err" &&
+             grep -Fq "no unexpired artifact" "$RUNNER_TEMP/jd-artifact.err"; then
+            echo "No crawler artifacts are available; skipping merge and publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$zol_status" -ne 0 ]; then
+            exit "$zol_status"
+          fi
+          if [ "$jd_status" -ne 0 ]; then
+            exit "$jd_status"
+          fi
 
       - name: Download published baseline
+        if: steps.artifacts.outputs.skip != 'true'
         run: |
           mkdir -p baseline
           gh release download data-latest \
@@ -61,6 +92,7 @@ jobs:
             --dir baseline || true
 
       - name: Merge, deduplicate, and enforce publication requirements
+        if: steps.artifacts.outputs.skip != 'true'
         run: |
           mkdir -p data/work dist
           python scripts/merge_data.py \
@@ -75,6 +107,7 @@ jobs:
             --output dist/laptops-latest.json
 
       - name: Verify no published identity or source regresses
+        if: steps.artifacts.outputs.skip != 'true'
         run: |
           python scripts/verify_publish_superset.py \
             --baseline baseline/laptops-latest.json \
@@ -84,6 +117,7 @@ jobs:
             --baseline baseline/laptops-latest.json
 
       - name: Generate merge evidence report
+        if: steps.artifacts.outputs.skip != 'true'
         run: |
           python scripts/analysis/merge_evidence_report.py \
             --raw data/raw/zol/latest.json data/raw/jd/latest.json \
@@ -92,6 +126,7 @@ jobs:
             --output dist/merge-evidence-report.json
 
       - name: Create or update rolling data release
+        if: steps.artifacts.outputs.skip != 'true'
         run: |
           if gh release view data-latest >/dev/null 2>&1; then
             gh release edit data-latest \
@@ -109,5 +144,5 @@ jobs:
             --clobber
 
       - name: Trigger Pages deployment
+        if: steps.artifacts.outputs.skip != 'true'
         run: gh workflow run deploy-pages.yml --ref main
-
