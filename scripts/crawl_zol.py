@@ -19,6 +19,7 @@ try:
         infer_brand,
         keyboard_flags,
         make_session,
+        parse_battery_wh,
         parse_capacity_gb,
         parse_cpu_fields,
         parse_number,
@@ -36,6 +37,7 @@ except ModuleNotFoundError:
         infer_brand,
         keyboard_flags,
         make_session,
+        parse_battery_wh,
         parse_capacity_gb,
         parse_cpu_fields,
         parse_number,
@@ -46,10 +48,14 @@ except ModuleNotFoundError:
     from merge_data import classify_cpu_voltage, extract_cpu_model
 
 BASE_URL = "https://detail.zol.com.cn"
+# rank.zol.com.cn no longer resolves.  This is ZOL's server-rendered equivalent:
+# the notebook catalogue is ordered by its "热门排行" value and exposes the
+# same product IDs and detail pages as the retired ranking host.
 RANKING_URL = (
     "https://detail.zol.com.cn/notebook_index/"
     "subcate16_0_list_1_0_1_2_0_{page}.html"
 )
+RANKING_REFERER = f"{BASE_URL}/notebook/"
 
 
 def parse_specs(html: Any) -> dict[str, str]:
@@ -68,15 +74,21 @@ def parse_specs(html: Any) -> dict[str, str]:
 
 def parse_ranking_page(html: Any, page: int) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
-    for index, card in enumerate(html.select("li[data-follow-id]"), start=1):
-        link = card.select_one("h3 a[href]") or card.select_one("a.pic[href]")
+    # The real desktop DOM is <ul id="J_PicMode"><li data-follow-id="p...">.
+    for index, card in enumerate(
+        html.select("#J_PicMode > li[data-follow-id]"), start=1
+    ):
+        link = card.select_one("h3 .title-black a[href]") or card.select_one(
+            "a.pic[href]"
+        )
         if not link:
             continue
-        title = clean_text(link.get("title") or link.get_text(" ", strip=True))
+        title = clean_text(link.get_text(" ", strip=True) or link.get("title"))
         if not title:
             continue
-        rank_node = card.select_one(".rank-row span")
-        rank = int(rank_node.get_text(strip=True)) if rank_node and rank_node.get_text(strip=True).isdigit() else (page - 1) * 48 + index
+        # A few legacy products expose stale/duplicated numbers in .rank-row.
+        # The server-rendered list order is the authoritative popularity order.
+        rank = (page - 1) * 48 + index
         price_node = card.select_one(".price-type") or card.select_one(".price")
         product_id = clean_text(card.get("data-follow-id")).lstrip("p")
         results.append(
@@ -96,7 +108,58 @@ def parse_ranking_page(html: Any, page: int) -> list[dict[str, Any]]:
     return results
 
 
+def title_spec_fields(title: str) -> dict[str, Any]:
+    cpu = extract_cpu_model(title)
+    cpu_brand, cpu_family = parse_cpu_fields(cpu)
+    gpu_match = re.search(
+        r"\b((?:RTX|GTX)\s*\d{3,4}(?:\s*Ti)?|Radeon\s+RX\s*\d{3,4}\w*)\b",
+        title,
+        re.I,
+    )
+    gpu = clean_text(gpu_match.group(1)) if gpu_match else ""
+    gpu_type, dedicated_gpu = gpu_fields("", gpu or title)
+    screen_match = re.search(r"(\d{2}(?:\.\d+)?)\s*(?:英寸|吋|寸)", title)
+    memory_match = re.search(r"(\d{1,3})\s*GB(?=[/+\s)]|$)", title, re.I)
+    capacity_matches = re.findall(
+        r"(\d+(?:\.\d+)?)\s*(TB|GB)(?=[/+\s)]|$)", title, re.I
+    )
+    numeric_keypad, keyboard_backlight = keyboard_flags(title)
+    return {
+        "cpu": cpu,
+        "cpu_brand": cpu_brand,
+        "cpu_family": cpu_family,
+        "cpu_voltage_type": classify_cpu_voltage(cpu),
+        "numeric_keypad": numeric_keypad,
+        "keyboard_backlight": keyboard_backlight,
+        "gpu": gpu,
+        "gpu_type": gpu_type,
+        "dedicated_gpu": dedicated_gpu,
+        "screen_size": float(screen_match.group(1)) if screen_match else None,
+        "resolution": "",
+        "refresh_rate": None,
+        "memory_gb": int(memory_match.group(1)) if memory_match else None,
+        "storage_gb": (
+            max(
+                int(float(number) * (1024 if unit.upper() == "TB" else 1))
+                for number, unit in capacity_matches
+            )
+            if capacity_matches
+            else None
+        ),
+        "battery_wh": None,
+        "weight_kg": None,
+        "ports": [],
+        "evidence": {
+            "numeric_keypad": title,
+            "keyboard_backlight": title,
+            "cpu": title,
+            "gpu": title,
+        },
+    }
+
+
 def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, Any]:
+    item.update(title_spec_fields(item["title"]))
     match = re.search(r"/notebook/index(\d+)\.shtml", item["source_url"])
     if not match:
         return item
@@ -118,12 +181,13 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
     keyboard = text_from_spec(specs, "键盘描述", "键盘")
     numeric_keypad, keyboard_backlight = keyboard_flags(keyboard)
     gpu_type_raw = text_from_spec(specs, "显卡类型")
-    gpu = text_from_spec(specs, "显卡芯片", "显卡型号")
+    gpu = text_from_spec(specs, "显卡芯片", "显卡型号") or item["gpu"]
     gpu_type, dedicated_gpu = gpu_fields(gpu_type_raw, gpu)
     screen = text_from_spec(specs, "屏幕尺寸")
     memory = text_from_spec(specs, "内存容量")
     storage = text_from_spec(specs, "硬盘容量", "存储容量")
-    battery = text_from_spec(specs, "电池类型", "电池容量")
+    battery = text_from_spec(specs, "电池容量", "电池类型")
+    weight = text_from_spec(specs, "笔记本重量", "产品重量", "重量")
     ports_text = "；".join(
         value
         for key, value in specs.items()
@@ -135,17 +199,29 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
             "cpu_brand": cpu_brand,
             "cpu_family": cpu_family,
             "cpu_voltage_type": classify_cpu_voltage(cpu),
-            "numeric_keypad": numeric_keypad,
-            "keyboard_backlight": keyboard_backlight,
+            "numeric_keypad": (
+                numeric_keypad if numeric_keypad is not None else item["numeric_keypad"]
+            ),
+            "keyboard_backlight": (
+                keyboard_backlight
+                if keyboard_backlight is not None
+                else item["keyboard_backlight"]
+            ),
             "gpu": gpu,
             "gpu_type": gpu_type,
             "dedicated_gpu": dedicated_gpu,
-            "screen_size": parse_number(screen),
-            "resolution": text_from_spec(specs, "屏幕分辨率", "分辨率"),
-            "refresh_rate": parse_number(text_from_spec(specs, "屏幕刷新率", "刷新率")),
-            "memory_gb": parse_capacity_gb(memory),
-            "storage_gb": parse_capacity_gb(storage),
-            "battery_wh": parse_number(battery) if "瓦时" in battery or "Wh" in battery else None,
+            "screen_size": parse_number(screen) or item["screen_size"],
+            "resolution": (
+                text_from_spec(specs, "屏幕分辨率", "分辨率") or item["resolution"]
+            ),
+            "refresh_rate": (
+                parse_number(text_from_spec(specs, "屏幕刷新率", "刷新率"))
+                or item["refresh_rate"]
+            ),
+            "memory_gb": parse_capacity_gb(memory) or item["memory_gb"],
+            "storage_gb": parse_capacity_gb(storage) or item["storage_gb"],
+            "battery_wh": parse_battery_wh(battery) or item["battery_wh"],
+            "weight_kg": parse_number(weight) or item["weight_kg"],
             "ports": [clean_text(part) for part in re.split(r"[；;]", ports_text) if clean_text(part)],
             "spec_url": final_url,
             "evidence": {
@@ -161,13 +237,22 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
 
 def crawl(pages: int, max_items: int, delay: float) -> list[dict[str, Any]]:
     session = make_session()
+    session.headers["Referer"] = RANKING_REFERER
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
     for page in range(1, pages + 1):
-        html, _ = get_html(session, RANKING_URL.format(page=page), encoding="gb18030", delay=delay)
+        html, final_url = get_html(
+            session,
+            RANKING_URL.format(page=page),
+            encoding="gb18030",
+            delay=delay,
+        )
         page_items = parse_ranking_page(html, page)
         if not page_items:
             raise RuntimeError(f"ZOL ranking page {page} returned no product cards")
+        # ZOL returns a tiny placeholder response for direct deep-page requests.
+        # Carrying the previous list page as Referer reproduces normal pagination.
+        session.headers["Referer"] = final_url
         for item in page_items:
             if item["source_product_id"] not in seen:
                 seen.add(item["source_product_id"])
@@ -198,17 +283,9 @@ def main() -> int:
     if len(items) < args.min_records:
         print(f"ZOL integrity failure: {len(items)} rows < {args.min_records}", file=sys.stderr)
         return 2
-    payload = {
-        "schema_version": 1,
-        "source": "ZOL",
-        "sort": "popularity",
-        "fetched_at": utc_now(),
-        "count": len(items),
-        "items": items,
-    }
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    output.write_text(json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {len(items)} ZOL popularity-ranked records to {output}")
     return 0
 

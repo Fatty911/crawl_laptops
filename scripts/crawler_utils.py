@@ -80,6 +80,12 @@ def parse_capacity_gb(value: Any) -> int | None:
     return int(max(values)) if values else None
 
 
+def parse_battery_wh(value: Any) -> float | None:
+    text = clean_text(value)
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:Wh|瓦时)", text, re.I)
+    return float(match.group(1)) if match else None
+
+
 def parse_cpu_fields(cpu: str) -> tuple[str, str]:
     text = clean_text(cpu)
     lowered = text.lower()
@@ -158,4 +164,3 @@ def text_from_spec(specs: dict[str, str], *names: str) -> str:
         if specs.get(name):
             return specs[name]
     return ""
-

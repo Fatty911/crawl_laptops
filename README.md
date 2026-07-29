@@ -33,7 +33,7 @@ ZOL 热度榜 ──► zol-data-YYYYMMDD ─┐
 ## 仓库结构
 
 - `scripts/crawl_zol.py`：ZOL 热度榜和产品参数页。
-- `scripts/crawl_jd.py`：京东销量排序搜索页和产品参数页。
+- `scripts/crawl_jd.py`：京东官方销量排行榜和产品参数页。
 - `scripts/merge_data.py`：身份去重、来源归一、证据合并和发布准入。
 - `scripts/preserve_publish_baseline.py`：合并上次发布基线。
 - `scripts/verify_publish_superset.py`：防止已发布身份被缩小。
@@ -59,7 +59,7 @@ python scripts/crawl_zol.py --output data/raw/zol/latest.json
 python scripts/crawl_jd.py --output data/raw/jd/latest.json
 ```
 
-京东可能对无登录态或数据中心 IP 返回风险验证页。可在本地环境或仓库 Actions secret 中配置 `JD_COOKIE`；爬虫检测到验证页会明确失败，不会把验证 HTML 当作数据。
+京东搜索页已改为 React 客户端渲染，并可能对数据中心 IP 返回风险验证。爬虫因此使用京东官方服务端渲染的销售排行榜（15 日销量降序）；详情页如被验证拦截，只从排行榜中的真实商品标题提取可确认字段，其余字段保持未知，不会把验证 HTML 当作数据。
 
 合并和本地预览：
 
