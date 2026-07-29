@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "forced": {
+    "numeric_keypad": {
+      "label": "数字小键盘",
+      "operator": "equals",
+      "value": true,
+      "locked": true
+    },
+    "keyboard_backlight": {
+      "label": "键盘背光",
+      "operator": "equals",
+      "value": true,
+      "locked": true
+    },
+    "cpu_voltage_type": {
+      "label": "CPU 电压类型",
+      "operator": "not_equals",
+      "value": "low_power",
+      "allowed_values": ["standard_performance", "high_performance"],
+      "locked": true
+    }
+  },
+  "defaults": {
+    "hide_dedicated_gpu": true,
+    "view": "table",
+    "sort": "source_rank"
+  },
+  "groups": [
+    {
+      "id": "processor",
+      "label": "处理器",
+      "fields": ["cpu_brand", "cpu_family", "cpu_voltage_type"]
+    },
+    {
+      "id": "graphics",
+      "label": "显卡",
+      "fields": ["gpu_type", "gpu"]
+    },
+    {
+      "id": "display",
+      "label": "屏幕",
+      "fields": ["screen_size", "resolution", "refresh_rate"]
+    },
+    {
+      "id": "memory_storage",
+      "label": "内存存储",
+      "fields": ["memory_gb", "storage_gb"]
+    },
+    {
+      "id": "keyboard",
+      "label": "键盘",
+      "fields": ["numeric_keypad", "keyboard_backlight"]
+    },
+    {
+      "id": "battery_ports",
+      "label": "电池接口",
+      "fields": ["battery_wh", "ports"]
+    },
+    {
+      "id": "price_brand",
+      "label": "价格品牌",
+      "fields": ["price", "brand"]
+    }
+  ]
+}
+

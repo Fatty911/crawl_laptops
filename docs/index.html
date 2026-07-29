@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="多来源、可核验的全尺寸高性能笔记本筛选器">
+    <meta name="theme-color" content="#101914">
+    <title>Notebook Signal · 笔记本雷达</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand-mark" href="./" aria-label="笔记本雷达首页">
+        <span class="brand-icon" aria-hidden="true">N</span>
+        <span>
+          <strong>Notebook Signal</strong>
+          <small>笔记本雷达</small>
+        </span>
+      </a>
+      <div class="topbar-meta">
+        <span id="freshness">正在读取数据…</span>
+        <span class="live-dot" aria-hidden="true"></span>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">FULL-SIZE · PERFORMANCE · VERIFIED</p>
+          <h1>把真正合适的<br><em>全尺寸性能本</em>留下来。</h1>
+          <p class="hero-copy">
+            聚合 ZOL 热度榜与京东销量榜，只发布有数字小键盘、键盘背光和 H 系高性能处理器的机型。
+          </p>
+        </div>
+        <div class="hero-stats" aria-label="数据概览">
+          <div><strong id="total-count">—</strong><span>已发布机型</span></div>
+          <div><strong id="multi-count">—</strong><span>多源交叉验证</span></div>
+          <div><strong id="source-count">—</strong><span>原子数据源</span></div>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <button id="filter-toggle" class="filter-toggle" type="button" aria-expanded="false">
+          筛选中心 <span id="active-filter-count">0</span>
+        </button>
+        <aside id="filter-panel" class="filters" aria-label="筛选中心">
+          <div class="filter-heading">
+            <div><span class="section-index">01</span><h2>筛选中心</h2></div>
+            <button id="reset-filters" type="button">重置</button>
+          </div>
+          <label class="search-box">
+            <span>搜索型号或处理器</span>
+            <input id="search" type="search" placeholder="例如 ThinkBook / 8845H">
+          </label>
+          <section class="gate-card" aria-label="不可取消的发布准入条件">
+            <p>发布准入 · 始终生效</p>
+            <div id="forced-filters"></div>
+          </section>
+          <div id="filter-groups"></div>
+        </aside>
+
+        <div class="results">
+          <div class="result-toolbar">
+            <div>
+              <span class="section-index">02</span>
+              <h2><strong id="visible-count">0</strong> 款符合当前条件</h2>
+            </div>
+            <div class="toolbar-actions">
+              <label>
+                <span class="sr-only">排序</span>
+                <select id="sort">
+                  <option value="source_rank">综合榜单</option>
+                  <option value="price_asc">价格从低到高</option>
+                  <option value="price_desc">价格从高到低</option>
+                  <option value="source_count">多源优先</option>
+                </select>
+              </label>
+              <div class="view-switch" aria-label="视图切换">
+                <button data-view="table" class="is-active" type="button" title="表格视图">表格</button>
+                <button data-view="cards" type="button" title="卡片视图">卡片</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="status" class="status" role="status">正在加载最新发布数据…</div>
+          <div id="table-view" class="table-shell" hidden>
+            <table>
+              <thead>
+                <tr>
+                  <th>机型</th>
+                  <th>处理器 / 显卡</th>
+                  <th>屏幕</th>
+                  <th>内存 / 存储</th>
+                  <th>价格</th>
+                  <th>来源</th>
+                </tr>
+              </thead>
+              <tbody id="laptop-rows"></tbody>
+            </table>
+          </div>
+          <div id="card-view" class="card-grid" hidden></div>
+          <div id="empty-state" class="empty-state" hidden>
+            <span>没有命中</span>
+            <h3>试着放宽可选筛选条件</h3>
+            <p>三个发布准入条件会始终保持生效。</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>数据用于选购研究，价格和库存以来源页面为准。</p>
+      <p><a href="https://github.com/Fatty911/crawl_laptops">查看数据管线</a></p>
+    </footer>
+    <script src="app.js" defer></script>
+  </body>
+</html>
+
