@@ -1,0 +1,113 @@
+name: Merge and Filter
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Crawl ZOL", "Crawl JD"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: merge-and-filter
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Set up Python
+        uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Download latest complete crawler artifacts
+        run: |
+          mkdir -p data/raw/zol data/raw/jd
+          python scripts/download_latest_crawler_artifact.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow crawl-zol.yml \
+            --artifact-prefix zol-data- \
+            --output data/raw/zol/latest.json \
+            --min-records 50
+          python scripts/download_latest_crawler_artifact.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow crawl-jd.yml \
+            --artifact-prefix jd-data- \
+            --output data/raw/jd/latest.json \
+            --min-records 50
+
+      - name: Download published baseline
+        run: |
+          mkdir -p baseline
+          gh release download data-latest \
+            --pattern laptops-latest.json \
+            --dir baseline || true
+
+      - name: Merge, deduplicate, and enforce publication requirements
+        run: |
+          mkdir -p data/work dist
+          python scripts/merge_data.py \
+            data/raw/zol/latest.json \
+            data/raw/jd/latest.json \
+            --output data/work/candidate.json \
+            --rejected-output data/work/rejected.json \
+            --min-source-records 50
+          python scripts/preserve_publish_baseline.py \
+            --candidate data/work/candidate.json \
+            --baseline baseline/laptops-latest.json \
+            --output dist/laptops-latest.json
+
+      - name: Verify no published identity or source regresses
+        run: |
+          python scripts/verify_publish_superset.py \
+            --baseline baseline/laptops-latest.json \
+            --candidate dist/laptops-latest.json
+          python scripts/audit_pages_payload.py \
+            --payload dist/laptops-latest.json \
+            --baseline baseline/laptops-latest.json
+
+      - name: Generate merge evidence report
+        run: |
+          python scripts/analysis/merge_evidence_report.py \
+            --raw data/raw/zol/latest.json data/raw/jd/latest.json \
+            --merged dist/laptops-latest.json \
+            --rejected data/work/rejected.json \
+            --output dist/merge-evidence-report.json
+
+      - name: Create or update rolling data release
+        run: |
+          if gh release view data-latest >/dev/null 2>&1; then
+            gh release edit data-latest \
+              --title "Latest verified laptop data" \
+              --notes "Automated verified dataset from ZOL and JD."
+          else
+            gh release create data-latest \
+              --target main \
+              --title "Latest verified laptop data" \
+              --notes "Automated verified dataset from ZOL and JD."
+          fi
+          gh release upload data-latest \
+            dist/laptops-latest.json \
+            dist/merge-evidence-report.json \
+            --clobber
+
+      - name: Trigger Pages deployment
+        run: gh workflow run deploy-pages.yml --ref main
+
