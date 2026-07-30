@@ -45,6 +45,31 @@ BRAND_ALIASES = {
 
 LOW_POWER_SUFFIXES = ("UL", "UP", "G1", "G4", "G7", "U", "Y")
 PERFORMANCE_SUFFIXES = ("HX", "HS", "HK", "H")
+PORTABLE_CATEGORY_PATTERN = re.compile(
+    r"(?:notebook|laptop|笔记本|游戏本|移动工作站|barebone|准系统)",
+    re.I,
+)
+PORTABLE_FORM_PATTERN = re.compile(
+    r"(?:notebook|laptop|笔记本|游戏本|移动工作站|便携电脑|barebone|准系统)",
+    re.I,
+)
+ODM_PATTERN = re.compile(r"(?:CLEVO|蓝天|COMPAL|仁宝)", re.I)
+CHASSIS_PATTERN = re.compile(r"(?:模具|机模|chassis|barebone|准系统)", re.I)
+DESKTOP_PRODUCT_PATTERN = re.compile(
+    r"(?:台式(?:机|电脑|整机)|桌上型电脑|desktop\s+(?:computer|PC|tower)|"
+    r"mini\s*PC|迷你主机|\bNUC\b|一体机)",
+    re.I,
+)
+DESKTOP_CPU_EVIDENCE_PATTERN = re.compile(
+    r"(?:desktop[- ](?:range|class|grade)?\s*(?:CPU|processor|Ryzen)?|"
+    r"桌面级(?:CPU|处理器)|台式(?:机)?CPU|socketed\s+(?:desktop\s+)?CPU|"
+    r"\bLGA\s*\d{3,4}\b|\bAM[45]\b)",
+    re.I,
+)
+POSSIBLE_SUFFIXLESS_DESKTOP_CPU_PATTERN = re.compile(
+    r"(?:i[3579][-\s]?\d{4,5}|(?:Ryzen|锐龙|R)\s*[3579]?\s*[- ]?\d{4,5})",
+    re.I,
+)
 
 
 def utc_now() -> str:
@@ -129,6 +154,8 @@ def extract_cpu_model(text: Any) -> str:
         r"\b(?:i[3579]|Ultra\s*[3579])[-\s]?\d{3,5}(?:HX|HS|HK|H|UL|UP|U|Y|G[147])\b",
         r"\b(?:Ryzen|锐龙)\s*[3579]?\s*\d{4,5}(?:HX|HS|HK|H|UL|UP|U|Y)\b",
         r"\b\d{4,5}(?:HX|HS|HK|H|UL|UP|U|Y)\b",
+        r"(?<![A-Za-z0-9])i[3579][-\s]?\d{4,5}(?:KS|KF|K|F)\b",
+        r"\b(?:Ryzen|锐龙|R)\s*[3579]?\s*[- ]?\d{4,5}(?:X3D|XT|X|G)\b",
     )
     for pattern in patterns:
         match = re.search(pattern, value, flags=re.I)
@@ -147,6 +174,15 @@ def classify_cpu_voltage(cpu: Any) -> str:
     for suffix in PERFORMANCE_SUFFIXES:
         if re.search(rf"{re.escape(suffix)}(?:\b|$)", model):
             return "high_performance" if suffix in {"HX", "HK"} else "standard_performance"
+    if re.search(
+        r"(?<![A-Z0-9])I[3579][-\s]?\d{4,5}(?:KS|KF|K|F)\b", model
+    ):
+        return "desktop_performance"
+    if re.search(
+        r"\b(?:RYZEN|锐龙|R)\s*[3579]?\s*[- ]?\d{4,5}(?:X3D|XT|X|G)\b",
+        model,
+    ):
+        return "desktop_performance"
     return "unknown"
 
 
@@ -163,14 +199,64 @@ def _coerce_bool(value: Any) -> bool | None:
     return None
 
 
+def _desktop_cpu_has_portable_product_form(record: dict[str, Any]) -> bool:
+    evidence = record.get("evidence")
+    evidence_text = (
+        " ".join(str(value) for value in evidence.values() if value)
+        if isinstance(evidence, dict)
+        else ""
+    )
+    category = str(record.get("source_category") or "")
+    form = " ".join(
+        str(value)
+        for value in (
+            record.get("title"),
+            record.get("model"),
+            record.get("product_form"),
+            evidence_text,
+        )
+        if value
+    )
+    if DESKTOP_PRODUCT_PATTERN.search(form):
+        return False
+    category_confirmed = bool(PORTABLE_CATEGORY_PATTERN.search(category))
+    explicit_form = bool(PORTABLE_FORM_PATTERN.search(form))
+    odm_chassis_form = bool(
+        ODM_PATTERN.search(form) and CHASSIS_PATTERN.search(form)
+    )
+    return category_confirmed and (explicit_form or odm_chassis_form)
+
+
+def _record_cpu_voltage(record: dict[str, Any]) -> str:
+    voltage = record.get("cpu_voltage_type") or classify_cpu_voltage(
+        record.get("cpu")
+    )
+    if voltage != "unknown":
+        return str(voltage)
+    evidence = record.get("evidence")
+    cpu_evidence = (
+        str(evidence.get("cpu") or "") if isinstance(evidence, dict) else ""
+    )
+    cpu_text = str(record.get("cpu") or "")
+    if (
+        POSSIBLE_SUFFIXLESS_DESKTOP_CPU_PATTERN.search(cpu_text)
+        and DESKTOP_CPU_EVIDENCE_PATTERN.search(cpu_evidence)
+    ):
+        return "desktop_performance"
+    return "unknown"
+
+
 def meets_publish_requirements(record: dict[str, Any]) -> tuple[bool, list[str]]:
     reasons: list[str] = []
     if _coerce_bool(record.get("numeric_keypad")) is not True:
         reasons.append("numeric_keypad_not_confirmed")
     if _coerce_bool(record.get("keyboard_backlight")) is not True:
         reasons.append("keyboard_backlight_not_confirmed")
-    voltage = record.get("cpu_voltage_type") or classify_cpu_voltage(record.get("cpu"))
-    if voltage not in {"standard_performance", "high_performance"}:
+    voltage = _record_cpu_voltage(record)
+    if voltage == "desktop_performance":
+        if not _desktop_cpu_has_portable_product_form(record):
+            reasons.append("desktop_cpu_product_form_not_confirmed")
+    elif voltage not in {"standard_performance", "high_performance"}:
         reasons.append(f"cpu_voltage_not_allowed:{voltage}")
     return not reasons, reasons
 
@@ -254,7 +340,7 @@ def merge_group(records: list[dict[str, Any]]) -> dict[str, Any]:
     merged["evidence"] = evidence
     merged["brand"] = normalize_brand(merged.get("brand"), str(merged.get("title", "")))
     merged["cpu"] = extract_cpu_model(merged.get("cpu"))
-    merged["cpu_voltage_type"] = classify_cpu_voltage(merged["cpu"])
+    merged["cpu_voltage_type"] = _record_cpu_voltage(merged)
     merged["identity_key"] = build_identity_key(merged)
     return merged
 
@@ -314,7 +400,12 @@ def build_payload(items: list[dict[str, Any]], rejected: list[dict[str, Any]]) -
             "requirements": {
                 "numeric_keypad": True,
                 "keyboard_backlight": True,
-                "cpu_voltage_types": ["standard_performance", "high_performance"],
+                "cpu_voltage_types": [
+                    "standard_performance",
+                    "high_performance",
+                    "desktop_performance",
+                ],
+                "desktop_cpu_exception": "portable_product_form_evidence_required",
             },
         },
     }

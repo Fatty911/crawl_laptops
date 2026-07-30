@@ -102,6 +102,7 @@ def parse_search_page(html: Any, page: int) -> list[dict[str, Any]]:
                 "merchant": clean_text(shop_node.get_text(" ", strip=True) if shop_node else ""),
                 "source": "JD",
                 "atomic_source_names": ["JD"],
+                "source_category": "JD notebook 15-day sales ranking",
                 "source_rank": (page - 1) * 60 + index,
                 "source_product_id": sku,
                 "source_url": f"https://item.jd.com/{sku}.html",
@@ -185,6 +186,7 @@ def title_spec_fields(title: str) -> dict[str, Any]:
             "keyboard_backlight": title,
             "cpu": title,
             "gpu": title,
+            "product_form": title,
         },
     }
 
@@ -230,6 +232,14 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
         for key, value in specs.items()
         if any(token in key for token in ("接口", "USB", "雷电"))
     ]
+    product_form = clean_text(
+        "；".join(
+            value
+            for key, value in specs.items()
+            if key in {"产品类型", "产品定位", "商品类别", "类型"}
+        )
+        or item["title"]
+    )
     item.update(
         {
             "cpu": cpu,
@@ -260,12 +270,14 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
             "battery_wh": parse_battery_wh(battery) or item["battery_wh"],
             "weight_kg": parse_number(weight) or item["weight_kg"],
             "ports": ports,
+            "product_form": product_form,
             "spec_url": final_url,
             "evidence": {
                 "numeric_keypad": keyboard_probe,
                 "keyboard_backlight": keyboard_probe,
                 "cpu": cpu_raw,
                 "gpu": clean_text(f"{gpu_type_raw} {gpu}"),
+                "product_form": product_form,
             },
         }
     )

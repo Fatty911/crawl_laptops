@@ -90,7 +90,12 @@
 
   function tags(item) {
     const values = [
-      ["H 系", "performance"],
+      [
+        item.cpu_voltage_type === "desktop_performance"
+          ? "桌面级 CPU · 形态已核验"
+          : "H 系",
+        "performance",
+      ],
       [item.dedicated_gpu ? "独显" : "集显", item.dedicated_gpu ? "dedicated" : ""],
       ["数字键盘", ""],
       ["背光", ""],
@@ -157,7 +162,11 @@
   function renderForcedFilters() {
     const forced = state.config?.forced || {};
     $("#forced-filters").innerHTML = Object.values(forced).map((rule) => {
-      const value = rule.value === true ? "是" : (rule.allowed_values ? "H / HX / HS / HK" : rule.value);
+      const value = rule.value === true
+        ? "是"
+        : (rule.allowed_values
+          ? "H / HX / HS / HK；桌面级 CPU 仅限形态证据例外"
+          : rule.value);
       return `<div class="forced-pill">${escapeHtml(rule.label)} · ${escapeHtml(value)}</div>`;
     }).join("");
   }
@@ -299,4 +308,3 @@
 
   load();
 })();
-

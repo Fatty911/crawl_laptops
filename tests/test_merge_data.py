@@ -36,7 +36,11 @@ def test_identity_key_ignores_memory_storage_and_gpu_configuration_noise():
 
 
 def test_identity_deduplication_and_multi_source_merge():
-    merged, rejected = merge_records([laptop("中关村在线", price=6999), laptop("京东", price=6799)])
+    zol = laptop("中关村在线", price=6999)
+    zol["source_rank"] = 17
+    jd = laptop("京东", price=6799)
+    jd["source_rank"] = 4
+    merged, rejected = merge_records([zol, jd])
     assert rejected == []
     assert len(merged) == 1
     item = merged[0]
@@ -47,6 +51,8 @@ def test_identity_deduplication_and_multi_source_merge():
         "JD": "https://example.test/京东",
         "ZOL": "https://example.test/中关村在线",
     }
+    assert item["source_ranks"] == {"JD": 4, "ZOL": 17}
+    assert item["source_rank"] == 4
 
 
 def test_source_aliases_are_atomic_and_normalized():
@@ -72,4 +78,3 @@ def test_explicit_negative_evidence_wins_conflict():
     merged, rejected = merge_records([positive, negative])
     assert merged == []
     assert rejected[0]["reasons"] == ["numeric_keypad_not_confirmed"]
-

@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 
-from scripts.crawler_utils import parse_battery_wh
+from scripts.crawler_utils import make_session, parse_battery_wh
 from scripts.crawl_jd import parse_search_page, sales_url, title_spec_fields
 from scripts.crawl_zol import parse_ranking_page
 
@@ -94,3 +94,12 @@ def test_jd_sales_url_and_title_fallback_fields():
 
 def test_battery_capacity_ignores_cell_count():
     assert parse_battery_wh("3芯锂电池，59Wh") == 59
+
+
+def test_crawler_session_has_bounded_status_retry_and_backoff():
+    retry = make_session().get_adapter("https://").max_retries
+
+    assert retry.total == 3
+    assert retry.backoff_factor == 0.5
+    assert set(retry.status_forcelist) == {429, 500, 502, 503, 504}
+    assert retry.allowed_methods == frozenset({"GET", "HEAD"})

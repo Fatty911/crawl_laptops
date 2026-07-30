@@ -8,11 +8,21 @@ Every record written to the Pages payload must have positive evidence for:
 
 1. a numeric keypad;
 2. keyboard backlighting; and
-3. a standard/high-performance CPU whose model suffix is `H`, `HX`, `HS`, or `HK`.
+3. either:
+   - a standard/high-performance CPU whose model suffix is `H`, `HX`, `HS`, or
+     `HK`; or
+   - an explicitly identified desktop-performance CPU in a proven portable
+     notebook/barebone product.
 
 Unknown values fail closed. Low-power suffixes (`U`, `Y`, `UL`, `UP`, `G1`,
-`G4`, `G7`) must never be published. Do not weaken this policy in crawler,
-merge, audit, test, or UI code.
+`G4`, `G7`) must never be published. A desktop CPU exception requires both a
+source notebook/barebone category and positive product-form evidence such as
+`laptop`, `notebook`, `笔记本`, `游戏本`, `准系统`, or a named ODM chassis.
+Desktop PCs, mini PCs, NUCs, all-in-ones, and records with only a powerful CPU
+remain ineligible. `蓝天`/Clevo and `仁宝`/Compal are ODM evidence, not
+unconditional allowlists. Numeric-keypad and keyboard-backlight evidence
+remain mandatory for every published record. Do not weaken this policy in
+crawler, merge, audit, test, or UI code.
 
 ## Data and source integrity
 
@@ -33,4 +43,3 @@ merge, audit, test, or UI code.
 - Use `actions/checkout@main` and `actions/setup-python@main`; do not pin action
   commit SHAs in this repository.
 - Git commits must use `Fatty911 <xuerui911@gmail.com>`, never a bot identity.
-

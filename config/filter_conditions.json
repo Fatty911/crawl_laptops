@@ -17,7 +17,7 @@
       "label": "CPU 电压类型",
       "operator": "not_equals",
       "value": "low_power",
-      "allowed_values": ["standard_performance", "high_performance"],
+      "allowed_values": ["standard_performance", "high_performance", "desktop_performance"],
       "locked": true
     }
   },
@@ -64,4 +64,3 @@
     }
   ]
 }
-

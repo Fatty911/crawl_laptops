@@ -32,17 +32,39 @@ def main() -> int:
     for path in args.raw:
         payload = load(path)
         rows = items(payload)
+        source = (
+            payload.get("source")
+            if isinstance(payload, dict)
+            else None
+        )
+        if not source:
+            row_sources = sorted(
+                {
+                    str(row.get("source")).strip()
+                    for row in rows
+                    if str(row.get("source") or "").strip()
+                }
+            )
+            source = "+".join(row_sources) or "unknown"
         raw_summaries.append(
             {
                 "path": path,
-                "source": payload.get("source", "unknown") if isinstance(payload, dict) else "unknown",
+                "source": source,
                 "count": len(rows),
                 "positive_evidence": {
                     "numeric_keypad": sum(row.get("numeric_keypad") is True for row in rows),
                     "keyboard_backlight": sum(row.get("keyboard_backlight") is True for row in rows),
                     "allowed_cpu": sum(
                         row.get("cpu_voltage_type")
-                        in {"standard_performance", "high_performance"}
+                        in {
+                            "standard_performance",
+                            "high_performance",
+                            "desktop_performance",
+                        }
+                        for row in rows
+                    ),
+                    "desktop_cpu_exception": sum(
+                        row.get("cpu_voltage_type") == "desktop_performance"
                         for row in rows
                     ),
                 },

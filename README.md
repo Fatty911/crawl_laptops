@@ -10,9 +10,16 @@ Pages 中的每条数据都必须同时满足：
 
 - 明确有数字小键盘；
 - 明确有键盘背光；
-- CPU 型号明确以 `H`、`HX`、`HS` 或 `HK` 结尾。
+- CPU 型号明确以 `H`、`HX`、`HS` 或 `HK` 结尾；或为带有来源类别和
+  产品形态双重正证据的桌面级 CPU 笔记本/准系统。
 
-`U`、`Y`、`UL`、`UP`、`G1`、`G4`、`G7` 等低压后缀和无法识别的 CPU 都会 fail closed。前端默认隐藏独立显卡机型，但用户可以取消该可选条件；三个发布准入条件始终锁定。
+`U`、`Y`、`UL`、`UP`、`G1`、`G4`、`G7` 等低压后缀和无法识别的 CPU
+都会 fail closed。桌面级 CPU 不能单独作为放行理由：来源必须明确属于
+notebook/barebone 类，且标题或参数还要证明是笔记本、游戏本、移动工作站、
+准系统或具名 ODM 机模。蓝天/Clevo、仁宝/Compal 只是 ODM 辅证，不是品牌
+白名单；台式整机、迷你主机、NUC 和一体机始终排除。数字小键盘与键盘背光
+对所有发布记录仍是硬门槛。前端默认隐藏独立显卡机型，但用户可以取消该
+可选条件；三个发布准入条件始终锁定。
 
 ## 数据流
 
@@ -80,7 +87,9 @@ python -m http.server 8000 --directory docs
 - `crawl-zol.yml`：每周一 UTC 03:17 或手动运行。
 - `crawl-jd.yml`：每周二 UTC 03:47 或手动运行。
 - `merge-and-filter.yml`：任一爬虫成功后，下载两个来源各自最新的完整 artifact，合并、审计、更新滚动 Release，再触发 Pages。
-- `deploy-pages.yml`：从 `data-latest` Release 下载已审计 JSON，准备 `docs/data/latest.json` 并使用 GitHub Pages Actions 部署。
+- `deploy-pages.yml`：从 `data-latest` Release 下载已审计 JSON，准备
+  `docs/data/latest.json`、`docs/data/manifest.json`，使用 GitHub Pages
+  Actions 部署并回读两个线上资产核对行数与版本。
 
 仓库需在 **Settings → Pages → Source** 中选择 **GitHub Actions**。自定义域由 `docs/CNAME` 声明为 `nbs.jiucai.eu.org`，DNS 侧应将该域名 CNAME 到 `fatty911.github.io`。私有仓库能否公开使用 Pages 取决于 GitHub 账户方案。
 

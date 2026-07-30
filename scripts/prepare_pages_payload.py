@@ -35,10 +35,30 @@ def main() -> int:
         json.dumps(config, ensure_ascii=False, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )
+    source_counts = {
+        source: sum(
+            source in item.get("atomic_source_names", [])
+            for item in payload["items"]
+        )
+        for source in payload.get("sources", [])
+    }
+    manifest = {
+        "schemaVersion": payload.get("schema_version", 1),
+        "updatedAt": payload["generated_at"],
+        "rowCount": payload["count"],
+        "sourceCounts": source_counts,
+        "files": {
+            "latestJson": "data/latest.json",
+            "filterConditions": "data/filter_conditions.json",
+        },
+    }
+    (docs_data / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
     print(f"prepared {payload['count']} records in {docs_data}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

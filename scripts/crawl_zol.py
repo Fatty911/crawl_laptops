@@ -100,6 +100,7 @@ def parse_ranking_page(html: Any, page: int) -> list[dict[str, Any]]:
                 "currency": "CNY",
                 "source": "ZOL",
                 "atomic_source_names": ["ZOL"],
+                "source_category": "ZOL notebook",
                 "source_rank": rank,
                 "source_product_id": product_id,
                 "source_url": absolute_url(BASE_URL, link.get("href", "")),
@@ -154,6 +155,7 @@ def title_spec_fields(title: str) -> dict[str, Any]:
             "keyboard_backlight": title,
             "cpu": title,
             "gpu": title,
+            "product_form": title,
         },
     }
 
@@ -193,6 +195,13 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
         for key, value in specs.items()
         if any(token in key for token in ("数据接口", "视频接口", "音频接口", "其它接口"))
     )
+    product_form = clean_text(
+        "；".join(
+            value
+            for key, value in specs.items()
+            if key in {"产品类型", "产品定位", "包装清单"}
+        )
+    )
     item.update(
         {
             "cpu": cpu,
@@ -223,12 +232,14 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
             "battery_wh": parse_battery_wh(battery) or item["battery_wh"],
             "weight_kg": parse_number(weight) or item["weight_kg"],
             "ports": [clean_text(part) for part in re.split(r"[；;]", ports_text) if clean_text(part)],
+            "product_form": product_form,
             "spec_url": final_url,
             "evidence": {
                 "numeric_keypad": keyboard,
                 "keyboard_backlight": keyboard,
                 "cpu": cpu_raw,
                 "gpu": clean_text(f"{gpu_type_raw} {gpu}"),
+                "product_form": product_form,
             },
         }
     )
