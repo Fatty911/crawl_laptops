@@ -3,14 +3,18 @@ name: Crawl ZOL
 on:
   workflow_dispatch:
   schedule:
+    # Scheduled workflows run from the default branch (main).
+    # 03:17 UTC = 11:17 Asia/Shanghai (UTC+8), Monday weekly crawl.
     - cron: "17 3 * * 1"
+    # 05:23 UTC = 13:23 Asia/Shanghai (UTC+8), daily afternoon crawl.
+    - cron: "23 5 * * *"
 
 permissions:
   contents: read
   actions: write
 
 concurrency:
-  group: crawl-zol
+  group: crawl-source
   cancel-in-progress: false
 
 jobs:

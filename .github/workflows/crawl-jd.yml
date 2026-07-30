@@ -3,14 +3,18 @@ name: Crawl JD
 on:
   workflow_dispatch:
   schedule:
+    # Scheduled workflows run from the default branch (main).
+    # 03:47 UTC = 11:47 Asia/Shanghai (UTC+8), Tuesday weekly crawl.
     - cron: "47 3 * * 2"
+    # 05:53 UTC = 13:53 Asia/Shanghai (UTC+8), daily afternoon crawl.
+    - cron: "53 5 * * *"
 
 permissions:
   contents: read
   actions: write
 
 concurrency:
-  group: crawl-jd
+  group: crawl-source
   cancel-in-progress: false
 
 jobs:
