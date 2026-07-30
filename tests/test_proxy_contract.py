@@ -11,6 +11,65 @@ from scripts.generate_clash_config import ClashConfigGenerator
 from scripts import setup_proxy_runtime
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_proxy_secret_is_not_printed_outside_github_actions(capsys):
+    secret = "https://subscription.example.test/private-token"
+
+    with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": ""}, clear=False):
+        subscriptions, _ = setup_proxy_runtime.parse_proxy_secret(secret)
+
+    assert subscriptions == [secret]
+    assert secret not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "test_url"),
+    [
+        (
+            "crawl-zol.yml",
+            "https://detail.zol.com.cn/notebook_index/"
+            "subcate16_0_list_1_0_1_2_0_1.html",
+        ),
+        (
+            "crawl-jd.yml",
+            "https://www.jd.com/hotitem/670a86a27721a2eeea8.html",
+        ),
+    ],
+)
+def test_crawler_workflow_requires_proxy_before_crawl_and_clears_before_upload(
+    workflow_name, test_url
+):
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8")
+    )
+    steps = workflow["jobs"]["crawl"]["steps"]
+    names = [step["name"] for step in steps]
+
+    setup_index = names.index("Configure required crawler proxy")
+    crawl_index = names.index(
+        "Crawl popularity ranking"
+        if workflow_name == "crawl-zol.yml"
+        else "Crawl sales ranking"
+    )
+    clear_index = names.index("Clear crawler proxy environment")
+    upload_index = names.index("Upload crawler data")
+
+    assert setup_index < crawl_index < clear_index < upload_index
+    setup = steps[setup_index]
+    assert setup["env"]["PROXY_SUBSCRIPTIONS"] == (
+        "${{ secrets.PROXY_SUBSCRIPTIONS }}"
+    )
+    assert "scripts/setup_proxy_runtime.py" in setup["run"]
+    assert "--require-proxy" in setup["run"]
+    assert test_url in setup["run"]
+
+    clear = steps[clear_index]
+    assert clear["if"] == "always()"
+    assert "scripts/setup_proxy_runtime.py --clear" in clear["run"]
+
+
 def test_required_proxy_missing_fails_closed_and_records_disabled_environment(
     tmp_path, capsys
 ):
@@ -98,6 +157,8 @@ def test_clear_removes_proxy_environment_for_artifact_transfer(tmp_path):
     assert "PROXY_ENABLED=false" in exported
     assert "HTTP_PROXY=" in exported
     assert "HTTPS_PROXY=" in exported
+    assert "NO_PROXY=" in exported
+    assert "no_proxy=" in exported
 
 
 def test_generated_proxy_config_forces_source_traffic_through_nodes():

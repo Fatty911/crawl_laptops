@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -77,3 +79,23 @@ def test_pages_policy_and_labels_describe_narrow_desktop_cpu_exception():
     ]
     assert "桌面级 CPU · 形态已核验" in app
     assert "桌面级 CPU 仅限形态证据例外" in app
+
+
+def test_pages_workflow_reads_back_deployed_manifest():
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "deploy-pages.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    steps = workflow["jobs"]["deploy"]["steps"]
+    names = [step["name"] for step in steps]
+
+    deploy_index = names.index("Deploy Pages")
+    verify_index = names.index("Verify deployed manifest")
+    verify = steps[verify_index]
+
+    assert deploy_index < verify_index
+    assert "${{ steps.deployment.outputs.page_url }}data/manifest.json" in verify["env"][
+        "MANIFEST_URL"
+    ]
+    assert "docs/data/manifest.json" in verify["run"]

@@ -40,6 +40,8 @@ PROXY_ENV_DISABLED = {
     "http_proxy": "",
     "https_proxy": "",
     "all_proxy": "",
+    "NO_PROXY": "",
+    "no_proxy": "",
 }
 
 
@@ -52,7 +54,7 @@ def append_github_env(path: str, values: dict[str, str]) -> None:
 
 
 def mask(value: str) -> None:
-    if value:
+    if value and os.getenv("GITHUB_ACTIONS") == "true":
         print(f"::add-mask::{value}")
 
 
