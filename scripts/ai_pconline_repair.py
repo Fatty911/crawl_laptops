@@ -317,13 +317,22 @@ def parse_sse_response(response: requests.Response) -> dict[str, Any]:
     """Read an OpenAI-style SSE stream and return a normal completion dict."""
     content_parts: list[str] = []
     model = "deepseek/deepseek-v4-flash"
-    for line in response.iter_lines(decode_unicode=True):
-        if not line or not line.startswith("data:"):
+    buffer = ""
+    for chunk in response.iter_content(chunk_size=65536):
+        buffer += chunk.decode("utf-8", "replace")
+    for line in buffer.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
             continue
         payload = line[5:].strip()
         if not payload or payload == "[DONE]":
             continue
-        event = json.loads(payload)
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            # A truncated upstream line must not abort the whole stream; the
+            # reassembled content is still validated by git apply --check.
+            continue
         if event.get("model"):
             model = event["model"]
         delta = (event.get("choices") or [{}])[0].get("delta") or {}
