@@ -489,3 +489,59 @@ def test_run_sandboxed_rejects_paths_outside_runner_temp(monkeypatch, tmp_path):
     outside = tmp_path / ".." / "escaped-out"
     with pytest.raises(ValueError, match="must live under RUNNER_TEMP"):
         repair.run_sandboxed(tmp_path, outside, ["python", "-m", "pytest", "-q"])
+
+
+def test_split_patch_by_files_separates_blocks():
+    patch = (
+        "diff --git a/a.py b/a.py\nnew file mode 100644\n--- /dev/null\n+++ b/a.py\n@@ -0,0 +1 @@\n+x\n"
+        "diff --git a/b.py b/b.py\n--- a/b.py\n+++ b/b.py\n@@ -1 +1 @@\n-x\n+y\n"
+    )
+    blocks = repair.split_patch_by_files(patch)
+    assert set(blocks) == {"a.py", "b.py"}
+    assert blocks["a.py"].startswith("diff --git a/a.py")
+    assert "b.py" not in blocks["a.py"]
+
+
+def test_apply_deterministic_edits_matches_guards(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "tests").mkdir()
+    merge_before = (root / "scripts/merge_data.py").read_text(encoding="utf-8")
+    wf_before = (root / ".github/workflows/merge-and-filter.yml").read_text(encoding="utf-8")
+    docs_before = (root / "docs/index.html").read_text(encoding="utf-8")
+    for rel in ("tests/test_crawler_parsers.py", "tests/test_merge_data.py", "tests/test_workflow_contracts.py"):
+        (tmp_path / rel).write_text((root / rel).read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "scripts/merge_data.py").write_text(merge_before, encoding="utf-8")
+    (tmp_path / ".github/workflows/merge-and-filter.yml").write_text(wf_before, encoding="utf-8")
+    (tmp_path / "docs/index.html").write_text(docs_before, encoding="utf-8")
+
+    repair.apply_deterministic_edits(tmp_path)
+
+    repair.check_source_alias_change(merge_before, (tmp_path / "scripts/merge_data.py").read_text(encoding="utf-8"))
+    repair.check_merge_workflow(wf_before, (tmp_path / ".github/workflows/merge-and-filter.yml").read_text(encoding="utf-8"))
+    repair.check_docs_source_line(docs_before, (tmp_path / "docs/index.html").read_text(encoding="utf-8"))
+    after_wf = (tmp_path / ".github/workflows/merge-and-filter.yml").read_text(encoding="utf-8")
+    assert 'workflows: ["Crawl ZOL", "Crawl JD", "Crawl PConline"]' in after_wf
+    assert "data/raw/pconline/latest.json" in after_wf
+    assert "Crawl PConline" in (tmp_path / "tests/test_workflow_contracts.py").read_text(encoding="utf-8")
+
+
+def test_build_integration_patch_applies_cleanly():
+    root = Path(__file__).resolve().parents[1]
+    new_files = {
+        "scripts/crawl_pconline.py": "source = 'PConline'\n",
+        ".github/workflows/crawl-pconline.yml": "name: Crawl PConline\n",
+    }
+    patch = repair.build_integration_patch(root, new_files)
+    assert patch.startswith("diff --git ")
+    import subprocess as _sp
+    result = _sp.run(
+        ["git", "apply", "--check", "--whitespace=error", "-"],
+        cwd=root, input=patch.encode("utf-8"), capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")[-500:]
+    assert "scripts/crawl_pconline.py" in patch
+    assert "scripts/merge_data.py" in patch
+    assert ".github/workflows/merge-and-filter.yml" in patch

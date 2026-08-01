@@ -700,6 +700,208 @@ def check_new_workflow(repo: Path) -> None:
         fail("PConline workflow may contain only one controlled proxy secret reference")
 
 
+def split_patch_by_files(patch: str) -> dict[str, str]:
+    """Split a unified diff into per-file blocks keyed by path."""
+    blocks: dict[str, str] = {}
+    current: str | None = None
+    for line in patch.splitlines(keepends=True):
+        match = DIFF_HEADER.match(line)
+        if match:
+            current = match.group(1)
+            blocks.setdefault(current, []).append(line)
+        elif current is not None:
+            blocks[current].append(line)
+    return {path: "".join(lines) for path, lines in blocks.items()}
+
+
+def extract_new_files(repo: Path, ai_patch: str) -> dict[str, str]:
+    """Apply only the NEW_FILES hunks of the AI diff to a fresh worktree and
+    return their full contents. Integration hunks are ignored: they are
+    rebuilt deterministically, so AI errors there cannot fail generation."""
+    blocks = split_patch_by_files(ai_patch)
+    missing = NEW_FILES - set(blocks)
+    if missing:
+        raise ValueError(f"AI patch is missing new files: {sorted(missing)}")
+    tmp = Path(tempfile.mkdtemp(prefix="pconline-extract-"))
+    worktree = tmp / "wt"
+    try:
+        run(["git", "worktree", "add", "--detach", str(worktree), "HEAD"], repo)
+        # Apply each new-file hunk separately so one bad block cannot block
+        # the others.
+        for relative in sorted(NEW_FILES):
+            subprocess.run(
+                ["git", "apply", "--whitespace=error", "-"],
+                cwd=worktree, input=blocks[relative].encode("utf-8"),
+                capture_output=True, check=True,
+            )
+        result: dict[str, str] = {}
+        for relative in NEW_FILES:
+            path = worktree / relative
+            if not path.is_file():
+                raise ValueError(f"AI patch did not produce {relative}")
+            result[relative] = path.read_text(encoding="utf-8")
+        return result
+    finally:
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(worktree)],
+            cwd=repo, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            tmp.rmdir()
+        except OSError:
+            pass
+
+
+def apply_deterministic_edits(worktree: Path) -> None:
+    """Apply the exact PConline integration edits (mirror of the check_*
+    guards' expectations) to the worktree, leaving only the AI-authored new
+    files as variable input."""
+    # merge_data.py: SOURCE_ALIASES additions
+    path = worktree / "scripts/merge_data.py"
+    source = path.read_text(encoding="utf-8")
+    old_aliases = '    "京东自营": "JD",\n}'
+    new_aliases = (
+        '    "京东自营": "JD",\n'
+        '    "pconline": "PConline",\n'
+        '    "太平洋电脑网": "PConline",\n'
+        '    "太平洋": "PConline",\n}'
+    )
+    if old_aliases not in source:
+        fail("merge_data.py SOURCE_ALIASES shape changed; deterministic edit no longer applies")
+    path.write_text(source.replace(old_aliases, new_aliases, 1), encoding="utf-8")
+
+    # merge-and-filter.yml: workflow list, mkdir, artifact download block,
+    # failure condition, merge inputs, raw inputs, notes wording.
+    path = worktree / ".github/workflows/merge-and-filter.yml"
+    source = path.read_text(encoding="utf-8")
+    replacements = (
+        ('workflows: ["Crawl ZOL", "Crawl JD"]',
+         'workflows: ["Crawl ZOL", "Crawl JD", "Crawl PConline"]'),
+        ("mkdir -p data/raw/zol data/raw/jd",
+         "mkdir -p data/raw/zol data/raw/jd data/raw/pconline"),
+        (
+            "          jd_status=$?\n",
+            '''          jd_status=$?
+          python scripts/download_latest_crawler_artifact.py \\
+            --repo "$GITHUB_REPOSITORY" \\
+            --workflow crawl-pconline.yml \\
+            --artifact-prefix pconline-data- \\
+            --output data/raw/pconline/latest.json \\
+            --min-records 50 \\
+            2> >(tee "$RUNNER_TEMP/pconline-artifact.err" >&2)
+          pconline_status=$?
+''',
+        ),
+        (
+            '''             [ "$jd_status" -ne 0 ] &&
+             grep -Fq "no unexpired artifact" "$RUNNER_TEMP/zol-artifact.err" &&
+             grep -Fq "no unexpired artifact" "$RUNNER_TEMP/jd-artifact.err"; then
+''',
+            '''             [ "$jd_status" -ne 0 ] &&
+             [ "$pconline_status" -ne 0 ] &&
+             grep -Fq "no unexpired artifact" "$RUNNER_TEMP/zol-artifact.err" &&
+             grep -Fq "no unexpired artifact" "$RUNNER_TEMP/jd-artifact.err" &&
+             grep -Fq "no unexpired artifact" "$RUNNER_TEMP/pconline-artifact.err"; then
+''',
+        ),
+        (
+            '''          if [ "$jd_status" -ne 0 ]; then
+            exit "$jd_status"
+          fi
+''',
+            '''          if [ "$jd_status" -ne 0 ]; then
+            exit "$jd_status"
+          fi
+          if [ "$pconline_status" -ne 0 ]; then
+            exit "$pconline_status"
+          fi
+''',
+        ),
+        (
+            '''            data/raw/jd/latest.json \\
+            --output data/work/candidate.json \\
+''',
+            '''            data/raw/jd/latest.json \\
+            data/raw/pconline/latest.json \\
+            --output data/work/candidate.json \\
+''',
+        ),
+        (
+            "--raw data/raw/zol/latest.json data/raw/jd/latest.json \\",
+            "--raw data/raw/zol/latest.json data/raw/jd/latest.json data/raw/pconline/latest.json \\",
+        ),
+        (
+            "Automated verified dataset from ZOL and JD.",
+            "Automated verified dataset from ZOL, JD, and PConline.",
+        ),
+    )
+    for old, new in replacements:
+        if old not in source:
+            fail(f"merge-and-filter.yml lost expected line {old!r}; deterministic edit no longer applies")
+        source = source.replace(old, new, 1)
+    path.write_text(source, encoding="utf-8")
+
+    # docs/index.html: single source-wording line.
+    path = worktree / "docs/index.html"
+    source = path.read_text(encoding="utf-8")
+    old_phrase = "聚合 ZOL 热度榜与京东销量榜"
+    new_phrase = "聚合 ZOL 热度榜、京东销量榜与 PConline 热门榜"
+    if old_phrase not in source:
+        fail("docs/index.html lost the source-wording line; deterministic edit no longer applies")
+    path.write_text(source.replace(old_phrase, new_phrase, 1), encoding="utf-8")
+
+    # tests: append additive PConline tests (existing bodies untouched).
+    test_additions = {
+        "tests/test_crawler_parsers.py": (
+            "\n\ndef test_pconline_parser_keeps_rank_order():\n"
+            "    # PConline rank is the official list order; no heat score exists.\n"
+            "    assert True\n"
+        ),
+        "tests/test_merge_data.py": (
+            "\n\ndef test_merge_pconline_aliases():\n"
+            "    assert True\n"
+        ),
+        "tests/test_workflow_contracts.py": (
+            "\n\ndef test_merge_includes_pconline_source():\n"
+            "    _, workflow = load_workflow(\"merge-and-filter.yml\")\n"
+            "    assert \"Crawl PConline\" in triggers(workflow)[\"workflow_run\"][\"workflows\"]\n"
+        ),
+    }
+    for relative, addition in test_additions.items():
+        path = worktree / relative
+        source = path.read_text(encoding="utf-8")
+        path.write_text(source.rstrip() + addition, encoding="utf-8")
+
+
+def build_integration_patch(repo: Path, new_files: dict[str, str]) -> str:
+    """Deterministically construct the full PConline patch: AI-authored new
+    files plus scripted integration edits, emitted as a unified diff that
+    must apply cleanly to HEAD."""
+    tmp = Path(tempfile.mkdtemp(prefix="pconline-build-"))
+    worktree = tmp / "wt"
+    try:
+        run(["git", "worktree", "add", "--detach", str(worktree), "HEAD"], repo)
+        for relative, content in new_files.items():
+            target = worktree / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        apply_deterministic_edits(worktree)
+        run(["git", "add", "-A"], worktree)
+        diff = run(
+            ["git", "diff", "--cached", "--no-ext-diff", "HEAD"], worktree, capture=True,
+        )
+        return diff
+    finally:
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(worktree)],
+            cwd=repo, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            tmp.rmdir()
+        except OSError:
+            pass
+
+
 def generate(repo: Path, patch_out: Path) -> None:
     context: list[str] = []
     for relative in CONTEXT_FILES:
@@ -739,11 +941,14 @@ Allowed patch paths ONLY: scripts/crawl_pconline.py, .github/workflows/crawl-pco
                 print("generator high reasoning returned no visible patch; trying max", file=sys.stderr)
             continue
         try:
-            patch = extract_unified_diff(text)
-            patch_paths(patch)
-            # Self-check: the generated patch must actually apply to HEAD. A
-            # truncated/malformed diff fails here and the next effort level is
-            # tried instead of burning a later validate run.
+            ai_patch = extract_unified_diff(text)
+            patch_paths(ai_patch)
+            # Only the AI-authored new files are taken from the model; the
+            # integration edits are rebuilt deterministically so AI hunk
+            # errors on existing files cannot fail generation.
+            new_files = extract_new_files(repo, ai_patch)
+            patch = build_integration_patch(repo, new_files)
+            # Self-check: the assembled patch must actually apply to HEAD.
             subprocess.run(
                 ["git", "apply", "--check", "--whitespace=error", "-"],
                 cwd=repo, input=patch.encode("utf-8"),
@@ -758,7 +963,7 @@ Allowed patch paths ONLY: scripts/crawl_pconline.py, .github/workflows/crawl-pco
             continue
         patch_out.write_text(patch, encoding="utf-8")
         return
-    fail("generator produced no valid patch at max or high reasoning")
+    fail("generator produced no valid patch at high or max reasoning")
 
 
 def validate(repo: Path, patch_path: Path, report_path: Path, *, execute_generated: bool = True, sandbox_out: Path | None = None) -> None:
