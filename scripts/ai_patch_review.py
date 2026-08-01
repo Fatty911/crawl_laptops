@@ -33,7 +33,7 @@ def post_review(body: bytes, key: str, *, retries: int = 6) -> dict:
         try:
             response = requests.post(
                 "https://integrate.api.nvidia.com/v1/chat/completions",
-                headers=headers, data=body, proxies=proxies, timeout=600,
+                headers=headers, data=body, proxies=proxies, timeout=900,
             )
             if response.status_code == 200:
                 return response.json()

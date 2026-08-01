@@ -39,7 +39,7 @@ jobs:
     needs: freeze_check
     if: needs.freeze_check.outputs.frozen != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 50
     permissions:
       contents: read
     steps:

@@ -286,7 +286,7 @@ def post_json(url: str, body: bytes, *, retries: int = 6) -> dict[str, Any]:
     last_error: Exception | None = None
     for attempt in range(retries):
         try:
-            response = requests.post(url, headers=headers, data=body, proxies=proxies, timeout=600)
+            response = requests.post(url, headers=headers, data=body, proxies=proxies, timeout=900)
             if response.status_code == 200:
                 return response.json()
             if response.status_code in {429, 500, 502, 503, 504, 529} and attempt < retries - 1:
@@ -686,7 +686,7 @@ Allowed patch paths ONLY: scripts/crawl_pconline.py, .github/workflows/crawl-pco
         body = json.dumps({
             "model": "deepseek/deepseek-v4-flash",
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 16000,
+            "max_tokens": 12000,
             "temperature": 0,
             "reasoning_effort": effort,
         }).encode("utf-8")
