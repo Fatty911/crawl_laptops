@@ -23,6 +23,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+import requests
 import yaml
 
 NEW_FILES = {
@@ -276,35 +277,30 @@ def sha256_text(text: str) -> str:
 def post_json(url: str, body: bytes, *, retries: int = 6) -> dict[str, Any]:
     """Bound transient provider failures without treating them as repair attempts."""
     proxy = os.environ.get("DMIT_PROXY_URL", "").strip()
-    handlers = []
-    if proxy:
-        # Explicit ProxyHandler: urllib's environment proxy detection is
-        # case-sensitive per platform and unreliable on hosted runners.
-        handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
-    opener = urllib.request.build_opener(*handlers)
+    proxies = {"http": proxy, "https": proxy} if proxy else None
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {os.environ['ZEN_API_KEY']}",
+        "User-Agent": "Mozilla/5.0 (compatible; AI-repair-bot/1.0)",
+    }
     last_error: Exception | None = None
     for attempt in range(retries):
-        request = urllib.request.Request(
-            url, data=body,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {os.environ['ZEN_API_KEY']}",
-                "User-Agent": "Mozilla/5.0 (compatible; AI-repair-bot/1.0)",
-            },
-            method="POST",
-        )
         try:
-            with opener.open(request, timeout=600) as response:
-                return json.load(response)
-        except urllib.error.HTTPError as exc:
-            last_error = exc
-            if exc.code not in {429, 500, 502, 503, 504, 529} or attempt == retries - 1:
-                raise
-        except urllib.error.URLError as exc:
+            response = requests.post(url, headers=headers, data=body, proxies=proxies, timeout=600)
+            if response.status_code == 200:
+                return response.json()
+            if response.status_code in {429, 500, 502, 503, 504, 529} and attempt < retries - 1:
+                last_error = RuntimeError(f"HTTP {response.status_code}")
+                time.sleep(min(3 * (2**attempt), 60))
+                continue
+            # Include the upstream body so a 403 source (Cloudflare vs proxy)
+            # is visible in the workflow log for the next repair.
+            raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
+        except requests.RequestException as exc:
             last_error = exc
             if attempt == retries - 1:
                 raise
-        time.sleep(min(3 * (2**attempt), 60))
+            time.sleep(min(3 * (2**attempt), 60))
     raise last_error or RuntimeError("chat completion failed")
 
 
