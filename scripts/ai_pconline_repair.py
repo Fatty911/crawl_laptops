@@ -274,7 +274,7 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def post_json(url: str, body: bytes, *, retries: int = 6) -> dict[str, Any]:
+def post_json(url: str, body: bytes, *, retries: int = 3) -> dict[str, Any]:
     """Bound transient provider failures without treating them as repair attempts."""
     proxy = os.environ.get("DMIT_PROXY_URL", "").strip()
     proxies = {"http": proxy, "https": proxy} if proxy else None
@@ -681,7 +681,7 @@ Allowed patch paths ONLY: scripts/crawl_pconline.py, .github/workflows/crawl-pco
     if not key:
         fail("ZENMUX_API_KEY is required")
     payload: dict[str, Any] | None = None
-    for effort in ("max", "high"):
+    for effort in ("high", "max"):
         body = json.dumps({
             "model": "deepseek/deepseek-v4-flash",
             "messages": [{"role": "user", "content": prompt}],
@@ -695,7 +695,7 @@ Allowed patch paths ONLY: scripts/crawl_pconline.py, .github/workflows/crawl-pco
         text = payload.get("choices", [{}])[0].get("message", {}).get("content") or ""
         if not text.strip():
             if effort != "max":
-                print("generator max reasoning returned no visible patch; using explicit high fallback", file=sys.stderr)
+                print("generator high reasoning returned no visible patch; trying max", file=sys.stderr)
             continue
         try:
             patch = extract_unified_diff(text)

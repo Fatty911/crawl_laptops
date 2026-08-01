@@ -24,7 +24,7 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def post_review(body: bytes, key: str, *, retries: int = 6) -> dict:
+def post_review(body: bytes, key: str, *, retries: int = 3) -> dict:
     proxy = os.environ.get("DMIT_PROXY_URL", "").strip()
     proxies = {"http": proxy, "https": proxy} if proxy else None
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
