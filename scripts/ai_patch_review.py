@@ -34,7 +34,7 @@ def post_review(body: bytes, key: str, *, retries: int = 3) -> dict:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
             last_error = exc
-            if exc.code not in {429, 500, 502, 503, 504} or attempt == retries - 1:
+            if exc.code not in {429, 500, 502, 503, 504, 529} or attempt == retries - 1:
                 raise
         except urllib.error.URLError as exc:
             last_error = exc

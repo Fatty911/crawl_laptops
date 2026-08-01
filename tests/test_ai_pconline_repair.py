@@ -333,7 +333,7 @@ def test_reviewer_requires_visible_strict_json_and_xhigh_configuration():
         parse_json_reply("")
     reviewer_source = (Path(__file__).resolve().parents[1] / "scripts" / "ai_patch_review.py").read_text(encoding="utf-8")
     assert '"reasoning_effort": "xhigh"' in reviewer_source
-    assert "429, 500, 502, 503, 504" in reviewer_source
+    assert "429, 500, 502, 503, 504, 529" in reviewer_source
 
 
 def test_mutable_merge_guard_rejects_replayed_existing_external_command():
