@@ -1,0 +1,418 @@
+name: AI Repair PConline
+
+on:
+  workflow_dispatch:
+    inputs:
+      attempt:
+        description: "Bounded repair attempt (the controller permits only 1 or 2)"
+        required: true
+        default: "1"
+        type: choice
+        options: ["1", "2"]
+
+permissions: {}
+
+concurrency:
+  group: ai-pconline-repair
+  cancel-in-progress: false
+
+jobs:
+  freeze_check:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+    outputs:
+      frozen: ${{ steps.freeze.outputs.frozen }}
+    steps:
+      - id: freeze
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh issue list --repo "$GITHUB_REPOSITORY" --state open --label ai-pconline-frozen \
+              --limit 1 --json number --jq 'length > 0' | grep -qx true; then
+            echo "frozen=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frozen=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  generate:
+    needs: freeze_check
+    if: needs.freeze_check.outputs.frozen != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@main
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Generate constrained patch
+        env:
+          ZEN_API_KEY: ${{ secrets.ZEN_API_KEY }}
+        run: >-
+          python scripts/ai_pconline_repair.py generate
+          --repo .
+          --patch-out "$RUNNER_TEMP/pconline.patch"
+      - uses: actions/upload-artifact@main
+        with:
+          name: pconline-ai-patch-${{ github.run_id }}
+          path: ${{ runner.temp }}/pconline.patch
+          if-no-files-found: error
+          retention-days: 7
+
+  validate:
+    needs: generate
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@main
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@main
+        with:
+          name: pconline-ai-patch-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - name: Preserve trusted guard outside the candidate tree
+        run: cp scripts/ai_pconline_repair.py "$RUNNER_TEMP/trusted-ai-pconline-repair.py"
+      - name: Validate patch scope and run untrusted pytest in Docker sandbox
+        run: >-
+          python scripts/ai_pconline_repair.py validate
+          --repo .
+          --patch "$RUNNER_TEMP/pconline.patch"
+          --report "$RUNNER_TEMP/pconline-validation.json"
+          --sandbox-out "$RUNNER_TEMP/ai-sandbox-out"
+      - name: Verify exact tree after untrusted pytest
+        run: >-
+          python "$RUNNER_TEMP/trusted-ai-pconline-repair.py" verify-tree
+          --repo .
+          --patch "$RUNNER_TEMP/pconline.patch"
+          --base-sha "$GITHUB_SHA"
+      - name: Configure isolated crawler proxy
+        env:
+          PROXY_SUBSCRIPTIONS: ${{ secrets.PROXY_SUBSCRIPTIONS }}
+        run: >-
+          python scripts/setup_proxy_runtime.py
+          --require-proxy
+          --test-url https://product.pconline.com.cn/notebook/s10.shtml
+      - name: Lock proxy secret paths away from the sandbox
+        run: |
+          chmod 0700 /tmp/mihomo /tmp/mihomo-bin 2>/dev/null || true
+          chmod 0600 /tmp/mihomo/config.yaml /tmp/mihomo/proxies.json /tmp/mihomo.log 2>/dev/null || true
+      - name: Run real PConline smoke crawl in Docker sandbox
+        run: >-
+          python scripts/ai_pconline_repair.py run-sandboxed
+          --out "$RUNNER_TEMP/ai-sandbox-out" --
+          python scripts/crawl_pconline.py
+          --output /out/pconline-smoke.json
+          --pages 2
+          --max-items 50
+          --min-records 50
+          --delay 0
+      - name: Verify exact tree after crawler smoke
+        run: >-
+          python "$RUNNER_TEMP/trusted-ai-pconline-repair.py" verify-tree
+          --repo .
+          --patch "$RUNNER_TEMP/pconline.patch"
+          --base-sha "$GITHUB_SHA"
+      - name: Verify raw source evidence without fabricating eligibility
+        run: |
+          python - "$RUNNER_TEMP/ai-sandbox-out/pconline-smoke.json" <<'PY'
+          import json
+          import sys
+          with open(sys.argv[1], "rb") as handle:
+              raw = handle.read(5_000_001)
+          assert len(raw) <= 5_000_000, "smoke payload exceeds bounded guard"
+          payload = json.loads(raw)
+          rows = payload if isinstance(payload, list) else next(
+              (payload.get(key) for key in ("items", "laptops", "records", "data") if isinstance(payload.get(key), list)),
+              [],
+          )
+          assert len(rows) >= 50, f"expected at least 50 rows, got {len(rows)}"
+          assert all(row.get("source") == "PConline" for row in rows)
+          assert all(row.get("atomic_source_names") == ["PConline"] for row in rows)
+          assert all(isinstance(row.get("evidence"), dict) for row in rows)
+          assert any(row.get("numeric_keypad") is not True or row.get("keyboard_backlight") is not True for row in rows), \
+              "all rows were marked eligible without independent evidence"
+          PY
+      - name: Clear crawler proxy
+        if: always()
+        run: python scripts/setup_proxy_runtime.py --clear
+      - uses: actions/upload-artifact@main
+        if: always()
+        with:
+          name: pconline-validation-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/pconline.patch
+            ${{ runner.temp }}/pconline-validation.json
+            ${{ runner.temp }}/ai-sandbox-out/pconline-smoke.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  review:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@main
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@main
+        with:
+          name: pconline-validation-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - name: GLM-5.2 xhigh final review of exact validated diff
+        env:
+          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+        run: >-
+          python scripts/ai_patch_review.py
+          --patch "$RUNNER_TEMP/pconline.patch"
+          --validation "$RUNNER_TEMP/pconline-validation.json"
+          --output "$RUNNER_TEMP/pconline-review.json"
+      - uses: actions/upload-artifact@main
+        with:
+          name: pconline-review-${{ github.run_id }}
+          path: ${{ runner.temp }}/pconline-review.json
+          if-no-files-found: error
+          retention-days: 14
+
+  final_validate:
+    needs: review
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@main
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@main
+        with:
+          name: pconline-validation-${{ github.run_id }}
+          path: ${{ runner.temp }}/validated
+      - uses: actions/download-artifact@main
+        with:
+          name: pconline-review-${{ github.run_id }}
+          path: ${{ runner.temp }}/reviewed
+      - name: Bind reviewer result to exact tested diff
+        env:
+          BASE_SHA: ${{ github.sha }}
+        run: |
+          python - "$RUNNER_TEMP/validated/pconline.patch" "$RUNNER_TEMP/validated/pconline-validation.json" "$RUNNER_TEMP/reviewed/pconline-review.json" <<'PY'
+          import hashlib
+          import json
+          import os
+          import sys
+          patch_bytes = open(sys.argv[1], "rb").read(50_000_001)
+          assert len(patch_bytes) <= 50_000_000
+          validation = json.loads(open(sys.argv[2], "rb").read(1_000_001))
+          review = json.loads(open(sys.argv[3], "rb").read(1_000_001))
+          digest = hashlib.sha256(patch_bytes).hexdigest()
+          required_checks = {
+              "patch_scope", "merge_aliases", "merge_workflow", "docs_copy",
+              "test_preservation", "pconline_crawler_contract", "pconline_workflow_contract",
+              "py_compile", "pytest",
+          }
+          assert validation["base_sha"] == os.environ["BASE_SHA"]
+          assert required_checks <= set(validation["checks"])
+          assert validation["patch_sha256"] == digest == review["patch_sha256"]
+          assert review["reviewer_model"] == "z-ai/glm-5.2"
+          assert review["review"]["verdict"] == "PASS"
+          PY
+      - name: Fresh static validation without executing generated files
+        run: >-
+          python scripts/ai_pconline_repair.py validate
+          --repo .
+          --patch "$RUNNER_TEMP/validated/pconline.patch"
+          --report "$RUNNER_TEMP/pconline-final-validation.json"
+          --no-execute
+      - name: Verify final static tree equals HEAD plus exact patch
+        run: >-
+          python scripts/ai_pconline_repair.py verify-tree
+          --repo .
+          --patch "$RUNNER_TEMP/validated/pconline.patch"
+          --base-sha "$GITHUB_SHA"
+      - uses: actions/upload-artifact@main
+        with:
+          name: pconline-final-validation-${{ github.run_id }}
+          path: ${{ runner.temp }}/pconline-final-validation.json
+          if-no-files-found: error
+          retention-days: 14
+
+  finalize:
+    needs: final_validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@main
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@main
+        with:
+          name: pconline-validation-${{ github.run_id }}
+          path: ${{ runner.temp }}/validated
+      - uses: actions/download-artifact@main
+        with:
+          name: pconline-review-${{ github.run_id }}
+          path: ${{ runner.temp }}/reviewed
+      - uses: actions/download-artifact@main
+        with:
+          name: pconline-final-validation-${{ github.run_id }}
+          path: ${{ runner.temp }}/final
+      - name: Bind all artifacts to the exact base and patch
+        env:
+          BASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          patch="$RUNNER_TEMP/validated/pconline.patch"
+          validation="$RUNNER_TEMP/validated/pconline-validation.json"
+          review="$RUNNER_TEMP/reviewed/pconline-review.json"
+          final_validation="$RUNNER_TEMP/final/pconline-final-validation.json"
+          test "$(stat -c %s "$patch")" -le 50000000
+          test "$(stat -c %s "$validation")" -le 1000000
+          test "$(stat -c %s "$review")" -le 1000000
+          test "$(stat -c %s "$final_validation")" -le 1000000
+          digest=$(sha256sum "$patch" | cut -d' ' -f1)
+          test "$(jq -er '.base_sha' "$validation")" = "$BASE_SHA"
+          test "$(jq -er '.base_sha' "$final_validation")" = "$BASE_SHA"
+          test "$(jq -er '.patch_sha256' "$validation")" = "$digest"
+          test "$(jq -er '.patch_sha256' "$review")" = "$digest"
+          test "$(jq -er '.patch_sha256' "$final_validation")" = "$digest"
+          test "$(jq -er '.reviewer_model' "$review")" = "z-ai/glm-5.2"
+          test "$(jq -er '.review.verdict' "$review")" = "PASS"
+          for check in patch_scope merge_aliases merge_workflow docs_copy test_preservation \
+              pconline_crawler_contract pconline_workflow_contract py_compile pytest; do
+            jq -e --arg check "$check" '.checks | index($check) != null' "$validation" >/dev/null
+          done
+          for check in patch_scope merge_aliases merge_workflow docs_copy test_preservation \
+              pconline_crawler_contract pconline_workflow_contract; do
+            jq -e --arg check "$check" '.checks | index($check) != null' "$final_validation" >/dev/null
+          done
+          jq -r '.paths[]' "$validation" | sort > "$RUNNER_TEMP/validated-paths"
+          jq -r '.paths[]' "$final_validation" | sort > "$RUNNER_TEMP/final-paths"
+          diff -u "$RUNNER_TEMP/validated-paths" "$RUNNER_TEMP/final-paths"
+      - name: Apply exact reviewed patch without executing generated code
+        run: |
+          git apply --check --whitespace=error "$RUNNER_TEMP/validated/pconline.patch"
+          git apply --whitespace=error "$RUNNER_TEMP/validated/pconline.patch"
+          git diff --check
+      - name: Stage and commit only the exact validated paths
+        run: |
+          git config user.name "Fatty911"
+          git config user.email "xuerui911@gmail.com"
+          git add scripts/crawl_pconline.py .github/workflows/crawl-pconline.yml \
+            scripts/merge_data.py .github/workflows/merge-and-filter.yml docs/index.html \
+            tests/test_crawler_parsers.py tests/test_merge_data.py tests/test_workflow_contracts.py
+          git diff --cached --check
+          git diff --cached --name-only | sort > "$RUNNER_TEMP/staged-paths"
+          diff -u "$RUNNER_TEMP/validated-paths" "$RUNNER_TEMP/staged-paths"
+          git commit -m "feat: add PConline notebook popularity source"
+      - name: Push exact commit with short-lived write token
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          original_url=$(git remote get-url origin)
+          trap 'git remote set-url origin "$original_url"' EXIT
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin HEAD:main
+          git remote set-url origin "$original_url"
+          trap - EXIT
+      - name: Dispatch and wait for Crawl to Merge to Pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commit_sha=$(git rev-parse HEAD)
+          gh workflow run crawl-pconline.yml --repo "$GITHUB_REPOSITORY" --ref main
+          wait_for_run() {
+            local workflow="$1"
+            local run_id=""
+            for _ in $(seq 1 120); do
+              run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --branch main --limit 30 \
+                --json databaseId,headSha --jq ".[] | select(.headSha == \"$commit_sha\") | .databaseId" | head -1 || true)
+              if [ -n "$run_id" ]; then
+                gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
+                return 0
+              fi
+              sleep 10
+            done
+            echo "Timed out waiting for $workflow on $commit_sha" >&2
+            return 1
+          }
+          wait_for_run crawl-pconline.yml
+          wait_for_run merge-and-filter.yml
+          wait_for_run deploy-pages.yml
+      - name: Verify deployed Pages payload contains PConline
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 18); do
+            if curl --fail --silent --show-error --retry 2 https://nbs.jiucai.eu.org/data/latest.json > "$RUNNER_TEMP/live.json"; then
+              test "$(stat -c %s "$RUNNER_TEMP/live.json")" -le 50000000
+              jq -e '(.sources | index("PConline")) != null and .count > 17' "$RUNNER_TEMP/live.json" >/dev/null
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Pages payload never showed verified PConline data" >&2
+          exit 1
+
+  follow-up:
+    needs: [freeze_check, generate, validate, review, final_validate, finalize]
+    if: always() && needs.freeze_check.outputs.frozen != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      issues: write
+    steps:
+      - name: Dispatch one bounded retry or freeze
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTEMPT: ${{ inputs.attempt }}
+          GENERATE: ${{ needs.generate.result }}
+          VALIDATE: ${{ needs.validate.result }}
+          REVIEW: ${{ needs.review.result }}
+          FINAL_VALIDATE: ${{ needs.final_validate.result }}
+          FINALIZE: ${{ needs.finalize.result }}
+        run: |
+          set -euo pipefail
+          if [ "$GENERATE/$VALIDATE/$REVIEW/$FINAL_VALIDATE/$FINALIZE" = "success/success/success/success/success" ]; then
+            exit 0
+          fi
+          if [ "$ATTEMPT" = "1" ]; then
+            gh workflow run ai-pconline-repair.yml --repo "$GITHUB_REPOSITORY" --ref main -f attempt=2
+            exit 0
+          fi
+          gh label create ai-pconline-frozen --repo "$GITHUB_REPOSITORY" --color B60205 --description "AI PConline repair exhausted its bounded attempts" 2>/dev/null || true
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "AI PConline repair frozen after two attempts" \
+            --label ai-pconline-frozen \
+            --body "Run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID stopped after two bounded attempts. Results: generate=$GENERATE validate=$VALIDATE review=$REVIEW final_validate=$FINAL_VALIDATE finalize=$FINALIZE. Inspect retained artifacts; this Issue text is not repair-model input."
