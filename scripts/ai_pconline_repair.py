@@ -280,7 +280,7 @@ def post_json(url: str, body: bytes, *, retries: int = 6) -> dict[str, Any]:
     proxies = {"http": proxy, "https": proxy} if proxy else None
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {os.environ['ZEN_API_KEY']}",
+        "Authorization": f"Bearer {os.environ['ZENMUX_API_KEY']}",
         "User-Agent": "Mozilla/5.0 (compatible; AI-repair-bot/1.0)",
     }
     last_error: Exception | None = None
@@ -677,9 +677,9 @@ Create a Crawl PConline workflow patterned after Crawl ZOL: required proxy only 
 Integrate PConline into merge aliases, artifact retrieval, merge inputs, evidence report and release source wording without weakening baseline preservation, publication requirements, source-regression checks, or any test. Update docs source wording and ADD tests. Existing test function bodies must remain unchanged except the single workflow list assertion may add Crawl PConline.
 
 Allowed patch paths ONLY: scripts/crawl_pconline.py, .github/workflows/crawl-pconline.yml, scripts/merge_data.py, .github/workflows/merge-and-filter.yml, docs/index.html, tests/test_crawler_parsers.py, tests/test_merge_data.py, tests/test_workflow_contracts.py. Do not change any other path.\n\n""" + "\n\n".join(context)
-    key = os.environ.get("ZEN_API_KEY")
+    key = os.environ.get("ZENMUX_API_KEY")
     if not key:
-        fail("ZEN_API_KEY is required")
+        fail("ZENMUX_API_KEY is required")
     payload: dict[str, Any] | None = None
     text = ""
     for effort in ("max", "high"):

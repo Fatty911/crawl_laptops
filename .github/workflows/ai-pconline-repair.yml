@@ -54,7 +54,7 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - name: Generate constrained patch
         env:
-          ZEN_API_KEY: ${{ secrets.ZEN_API_KEY }}
+          ZENMUX_API_KEY: ${{ secrets.ZENMUX_API_KEY }}
           DMIT_PROXY_URL: ${{ secrets.DMIT_PROXY_URL }}
         run: >-
           python scripts/ai_pconline_repair.py generate
