@@ -286,9 +286,18 @@ def post_json(url: str, body: bytes, *, retries: int = 3) -> dict[str, Any]:
     last_error: Exception | None = None
     for attempt in range(retries):
         try:
-            response = requests.post(url, headers=headers, data=body, proxies=proxies, timeout=900)
+            # Streaming: the generator can take 15-40 minutes to emit a full
+            # patch; a non-streaming read timeout would abort mid-generation.
+            # With stream=True the read timeout applies per-chunk idle gap,
+            # which stays well under the cap while tokens keep flowing.
+            request_body = json.loads(body)
+            request_body["stream"] = True
+            response = requests.post(
+                url, headers=headers, json=request_body, proxies=proxies,
+                timeout=(30, 300), stream=True,
+            )
             if response.status_code == 200:
-                return response.json()
+                return parse_sse_response(response)
             if response.status_code in {429, 500, 502, 503, 504, 529} and attempt < retries - 1:
                 last_error = RuntimeError(f"HTTP {response.status_code}")
                 time.sleep(min(3 * (2**attempt), 60))
@@ -302,6 +311,29 @@ def post_json(url: str, body: bytes, *, retries: int = 3) -> dict[str, Any]:
                 raise
             time.sleep(min(3 * (2**attempt), 60))
     raise last_error or RuntimeError("chat completion failed")
+
+
+def parse_sse_response(response: requests.Response) -> dict[str, Any]:
+    """Read an OpenAI-style SSE stream and return a normal completion dict."""
+    content_parts: list[str] = []
+    model = "deepseek/deepseek-v4-flash"
+    for line in response.iter_lines(decode_unicode=True):
+        if not line or not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        event = json.loads(payload)
+        if event.get("model"):
+            model = event["model"]
+        delta = (event.get("choices") or [{}])[0].get("delta") or {}
+        piece = delta.get("content")
+        if piece:
+            content_parts.append(piece)
+    return {
+        "model": model,
+        "choices": [{"message": {"content": "".join(content_parts)}}],
+    }
 
 
 def triggers(workflow: dict[str, Any]) -> dict[str, Any]:
