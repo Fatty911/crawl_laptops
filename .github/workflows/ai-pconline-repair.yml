@@ -55,9 +55,12 @@ jobs:
       - name: Generate constrained patch
         env:
           ZEN_API_KEY: ${{ secrets.ZEN_API_KEY }}
-          HTTP_PROXY: ${{ secrets.DMIT_PROXY_URL }}
-          HTTPS_PROXY: ${{ secrets.DMIT_PROXY_URL }}
-          ALL_PROXY: ${{ secrets.DMIT_PROXY_URL }}
+          # urllib on POSIX only honors lowercase proxy env vars (uppercase
+          # HTTP_PROXY is ignored by getproxies_environment to avoid CGI
+          # conflicts), so export lowercase for the Linux runner.
+          http_proxy: ${{ secrets.DMIT_PROXY_URL }}
+          https_proxy: ${{ secrets.DMIT_PROXY_URL }}
+          all_proxy: ${{ secrets.DMIT_PROXY_URL }}
         run: >-
           python scripts/ai_pconline_repair.py generate
           --repo .
@@ -186,6 +189,9 @@ jobs:
       - name: GLM-5.2 xhigh final review of exact validated diff
         env:
           NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+          http_proxy: ${{ secrets.DMIT_PROXY_URL }}
+          https_proxy: ${{ secrets.DMIT_PROXY_URL }}
+          all_proxy: ${{ secrets.DMIT_PROXY_URL }}
         run: >-
           python scripts/ai_patch_review.py
           --patch "$RUNNER_TEMP/pconline.patch"
