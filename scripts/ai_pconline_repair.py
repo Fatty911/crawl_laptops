@@ -273,7 +273,7 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def post_json(url: str, body: bytes, *, retries: int = 3) -> dict[str, Any]:
+def post_json(url: str, body: bytes, *, retries: int = 6) -> dict[str, Any]:
     """Bound transient provider failures without treating them as repair attempts."""
     last_error: Exception | None = None
     for attempt in range(retries):
@@ -297,7 +297,7 @@ def post_json(url: str, body: bytes, *, retries: int = 3) -> dict[str, Any]:
             last_error = exc
             if attempt == retries - 1:
                 raise
-        time.sleep(3 * (2**attempt))
+        time.sleep(min(3 * (2**attempt), 60))
     raise last_error or RuntimeError("chat completion failed")
 
 

@@ -22,7 +22,7 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def post_review(body: bytes, key: str, *, retries: int = 3) -> dict:
+def post_review(body: bytes, key: str, *, retries: int = 6) -> dict:
     last_error: Exception | None = None
     for attempt in range(retries):
         request = urllib.request.Request(
@@ -40,7 +40,7 @@ def post_review(body: bytes, key: str, *, retries: int = 3) -> dict:
             last_error = exc
             if attempt == retries - 1:
                 raise
-        time.sleep(3 * (2**attempt))
+        time.sleep(min(3 * (2**attempt), 60))
     raise last_error or RuntimeError("NIM review failed")
 
 
