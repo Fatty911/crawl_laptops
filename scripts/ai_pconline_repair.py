@@ -275,6 +275,13 @@ def sha256_text(text: str) -> str:
 
 def post_json(url: str, body: bytes, *, retries: int = 6) -> dict[str, Any]:
     """Bound transient provider failures without treating them as repair attempts."""
+    proxy = os.environ.get("DMIT_PROXY_URL", "").strip()
+    handlers = []
+    if proxy:
+        # Explicit ProxyHandler: urllib's environment proxy detection is
+        # case-sensitive per platform and unreliable on hosted runners.
+        handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+    opener = urllib.request.build_opener(*handlers)
     last_error: Exception | None = None
     for attempt in range(retries):
         request = urllib.request.Request(
@@ -287,7 +294,7 @@ def post_json(url: str, body: bytes, *, retries: int = 6) -> dict[str, Any]:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=600) as response:
+            with opener.open(request, timeout=600) as response:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
             last_error = exc
