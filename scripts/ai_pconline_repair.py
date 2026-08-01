@@ -279,7 +279,11 @@ def post_json(url: str, body: bytes, *, retries: int = 3) -> dict[str, Any]:
     for attempt in range(retries):
         request = urllib.request.Request(
             url, data=body,
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {os.environ['ZEN_API_KEY']}"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {os.environ['NVIDIA_NIM_API_KEY']}",
+                "User-Agent": "Mozilla/5.0 (compatible; AI-repair-bot/1.0)",
+            },
             method="POST",
         )
         try:
@@ -670,21 +674,21 @@ Create a Crawl PConline workflow patterned after Crawl ZOL: required proxy only 
 Integrate PConline into merge aliases, artifact retrieval, merge inputs, evidence report and release source wording without weakening baseline preservation, publication requirements, source-regression checks, or any test. Update docs source wording and ADD tests. Existing test function bodies must remain unchanged except the single workflow list assertion may add Crawl PConline.
 
 Allowed patch paths ONLY: scripts/crawl_pconline.py, .github/workflows/crawl-pconline.yml, scripts/merge_data.py, .github/workflows/merge-and-filter.yml, docs/index.html, tests/test_crawler_parsers.py, tests/test_merge_data.py, tests/test_workflow_contracts.py. Do not change any other path.\n\n""" + "\n\n".join(context)
-    key = os.environ.get("ZEN_API_KEY")
+    key = os.environ.get("NVIDIA_NIM_API_KEY")
     if not key:
-        fail("ZEN_API_KEY is required")
+        fail("NVIDIA_NIM_API_KEY is required")
     payload: dict[str, Any] | None = None
     text = ""
     for effort in ("max", "high"):
         body = json.dumps({
-            "model": "deepseek/deepseek-v4-flash-free",
+            "model": "deepseek-ai/deepseek-v4-flash",
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 16000,
             "temperature": 0,
             "reasoning_effort": effort,
         }).encode("utf-8")
-        payload = post_json("https://zenmux.ai/api/v1/chat/completions", body)
-        if payload.get("model") != "deepseek/deepseek-v4-flash-free":
+        payload = post_json("https://integrate.api.nvidia.com/v1/chat/completions", body)
+        if payload.get("model") != "deepseek-ai/deepseek-v4-flash":
             fail(f"unexpected generator model: {payload.get('model')}")
         text = payload.get("choices", [{}])[0].get("message", {}).get("content") or ""
         if text.strip():
