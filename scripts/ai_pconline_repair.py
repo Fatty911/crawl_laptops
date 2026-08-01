@@ -681,7 +681,6 @@ Allowed patch paths ONLY: scripts/crawl_pconline.py, .github/workflows/crawl-pco
     if not key:
         fail("ZENMUX_API_KEY is required")
     payload: dict[str, Any] | None = None
-    text = ""
     for effort in ("max", "high"):
         body = json.dumps({
             "model": "deepseek/deepseek-v4-flash",
@@ -694,15 +693,31 @@ Allowed patch paths ONLY: scripts/crawl_pconline.py, .github/workflows/crawl-pco
         if payload.get("model") != "deepseek/deepseek-v4-flash":
             fail(f"unexpected generator model: {payload.get('model')}")
         text = payload.get("choices", [{}])[0].get("message", {}).get("content") or ""
-        if text.strip():
+        if not text.strip():
             if effort != "max":
                 print("generator max reasoning returned no visible patch; using explicit high fallback", file=sys.stderr)
-            break
-    if not text.strip():
-        fail("generator returned no visible patch at max or high reasoning")
-    patch = extract_unified_diff(text)
-    patch_paths(patch)
-    patch_out.write_text(patch, encoding="utf-8")
+            continue
+        try:
+            patch = extract_unified_diff(text)
+            patch_paths(patch)
+            # Self-check: the generated patch must actually apply to HEAD. A
+            # truncated/malformed diff fails here and the next effort level is
+            # tried instead of burning a later validate run.
+            subprocess.run(
+                ["git", "apply", "--check", "--whitespace=error", "-"],
+                cwd=repo, input=patch.encode("utf-8"),
+                capture_output=True, check=True,
+            )
+        except (ValueError, subprocess.CalledProcessError) as exc:
+            print(
+                f"generator {effort} output rejected ({type(exc).__name__}); "
+                f"trying next effort",
+                file=sys.stderr,
+            )
+            continue
+        patch_out.write_text(patch, encoding="utf-8")
+        return
+    fail("generator produced no valid patch at max or high reasoning")
 
 
 def validate(repo: Path, patch_path: Path, report_path: Path, *, execute_generated: bool = True, sandbox_out: Path | None = None) -> None:
