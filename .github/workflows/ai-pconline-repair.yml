@@ -55,6 +55,9 @@ jobs:
       - name: Generate constrained patch
         env:
           ZEN_API_KEY: ${{ secrets.ZEN_API_KEY }}
+          HTTP_PROXY: ${{ secrets.DMIT_PROXY_URL }}
+          HTTPS_PROXY: ${{ secrets.DMIT_PROXY_URL }}
+          ALL_PROXY: ${{ secrets.DMIT_PROXY_URL }}
         run: >-
           python scripts/ai_pconline_repair.py generate
           --repo .
