@@ -280,6 +280,7 @@ def test_bootstrap_workflow_guards_untrusted_runs_and_fresh_finalize():
     review_runs = "\n".join(str(step.get("run", "")) for step in jobs["review"]["steps"])
     assert "python -m pip install -r requirements.txt" in review_runs
     finalize = jobs["finalize"]
+    assert finalize["permissions"] == {"contents": "write", "actions": "write", "workflows": "write"}
     checkout = next(step for step in finalize["steps"] if step.get("uses") == "actions/checkout@main")
     assert checkout["with"]["persist-credentials"] is False
     finalize_runs = "\n".join(str(step.get("run", "")) for step in finalize["steps"])

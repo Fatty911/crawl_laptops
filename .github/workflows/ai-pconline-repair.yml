@@ -274,6 +274,7 @@ jobs:
     permissions:
       contents: write
       actions: write
+      workflows: write
     steps:
       - uses: actions/checkout@main
         with:
