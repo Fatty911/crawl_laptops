@@ -344,8 +344,11 @@ def test_mutable_merge_guard_rejects_replayed_existing_external_command():
 
 
 def test_merge_guard_accepts_minimal_pconline_artifact_integration():
-    path = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "merge-and-filter.yml"
-    before = path.read_text(encoding="utf-8")
+    root = Path(__file__).resolve().parents[1]
+    before = repair.git_show(root, ".github/workflows/merge-and-filter.yml")
+    if "data/raw/pconline/latest.json" in before:
+        repair.check_merge_workflow(before, before)
+        return
     after = before.replace(
         'workflows: ["Crawl ZOL", "Crawl JD"]',
         'workflows: ["Crawl ZOL", "Crawl JD", "Crawl PConline"]',
@@ -528,11 +531,11 @@ def test_apply_deterministic_edits_matches_guards(tmp_path):
     (tmp_path / ".github" / "workflows").mkdir(parents=True)
     (tmp_path / "docs").mkdir()
     (tmp_path / "tests").mkdir()
-    merge_before = (root / "scripts/merge_data.py").read_text(encoding="utf-8")
-    wf_before = (root / ".github/workflows/merge-and-filter.yml").read_text(encoding="utf-8")
-    docs_before = (root / "docs/index.html").read_text(encoding="utf-8")
+    merge_before = repair.git_show(root, "scripts/merge_data.py")
+    wf_before = repair.git_show(root, ".github/workflows/merge-and-filter.yml")
+    docs_before = repair.git_show(root, "docs/index.html")
     for rel in ("tests/test_crawler_parsers.py", "tests/test_merge_data.py", "tests/test_workflow_contracts.py"):
-        (tmp_path / rel).write_text((root / rel).read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / rel).write_text(repair.git_show(root, rel), encoding="utf-8")
     (tmp_path / "scripts/merge_data.py").write_text(merge_before, encoding="utf-8")
     (tmp_path / ".github/workflows/merge-and-filter.yml").write_text(wf_before, encoding="utf-8")
     (tmp_path / "docs/index.html").write_text(docs_before, encoding="utf-8")

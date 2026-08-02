@@ -9,12 +9,15 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
+import io
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import urllib.error
@@ -403,6 +406,11 @@ SANDBOX_ENV = (
     f"ALL_PROXY={SANDBOX_SOCKS_PROXY}",
     f"NO_PROXY={SANDBOX_NO_PROXY}",
     "PROXY_ENABLED=false",
+    # Tests may inspect HEAD or create a temporary Git repository while the
+    # source workspace remains read-only and is mounted under nobody.
+    "GIT_CONFIG_COUNT=1",
+    "GIT_CONFIG_KEY_0=safe.directory",
+    "GIT_CONFIG_VALUE_0=/workspace",
 )
 SANDBOX_SYNTAX_COMMAND = [
     "python",
@@ -1227,10 +1235,28 @@ def build_integration_patch(repo: Path, new_files: dict[str, str]) -> str:
     # The crawler remains the only model-authored new file.
     new_files = dict(new_files)
     new_files[".github/workflows/crawl-pconline.yml"] = PCONLINE_WORKFLOW_TEMPLATE
-    tmp = Path(tempfile.mkdtemp(prefix="pconline-build-"))
+    temp_root = os.environ.get("TMPDIR")
+    temp_dir = Path(temp_root) if temp_root and Path(temp_root).is_dir() else None
+    tmp = Path(tempfile.mkdtemp(prefix="pconline-build-", dir=temp_dir))
     worktree = tmp / "wt"
     try:
-        run(["git", "worktree", "add", "--detach", str(worktree), "HEAD"], repo)
+        worktree.mkdir()
+        archive = subprocess.run(
+            ["git", "archive", "HEAD"],
+            cwd=repo,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as bundle:
+            bundle.extractall(worktree, filter="data")
+        run(["git", "init"], worktree)
+        run(["git", "config", "user.name", "PConline repair"], worktree)
+        run(["git", "config", "user.email", "pconline-repair@example.invalid"], worktree)
+        run(["git", "add", "-A"], worktree)
+        # This is an ephemeral fixture repository; the user's global hooks
+        # must not treat it as a publishable working tree.
+        run(["git", "commit", "--no-verify", "--allow-empty", "-m", "base"], worktree)
         for relative, content in new_files.items():
             target = worktree / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1242,14 +1268,7 @@ def build_integration_patch(repo: Path, new_files: dict[str, str]) -> str:
         )
         return diff
     finally:
-        subprocess.run(
-            ["git", "worktree", "remove", "--force", str(worktree)],
-            cwd=repo, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        try:
-            tmp.rmdir()
-        except OSError:
-            pass
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def generate(repo: Path, patch_out: Path) -> None:
