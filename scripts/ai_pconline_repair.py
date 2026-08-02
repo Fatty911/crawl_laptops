@@ -1005,11 +1005,11 @@ Task: add PConline (太平洋电脑网) as a third laptop source. Use official s
 
 The crawler must write the same raw-record schema as crawl_zol.py, use source='PConline' and atomic_source_names=['PConline'], preserve source URL/rank/evidence, and keep numeric_keypad and keyboard_backlight unknown unless actual detail text proves them via keyboard_flags. It MUST implement argparse CLI options exactly: --output (json output path), --pages (int), --max-items (int), --min-records (int, fail the run if fewer records are collected), --delay (float). The string min-records MUST appear in the file as the argparse option name.
 
-Create the new PConline crawler and include the required workflow path in the diff. The generator replaces that workflow with a trusted template, so do not weaken its security boundary: it must use only contents:read, checkout persist-credentials:false, a proxy secret scoped to setup, the fixed run-sandboxed command, a trusted Copy sandbox output step, cleanup before artifact upload, the pconline-data- prefix, a 50-record threshold, manual + exactly two staggered schedules, and the verified nine-step lifecycle.
+Return exactly one new-file diff for scripts/crawl_pconline.py. Do not include the workflow or any existing file: the generator deterministically adds the trusted workflow and all integration edits. The crawler must be complete and syntactically valid, implement the exact hyphenated argparse flags --output, --pages, --max-items, --min-records, and --delay, and fail below --min-records. The workflow security boundary is fixed outside model output: contents:read, checkout persist-credentials:false, proxy secret scoped to setup, fixed run-sandboxed command, trusted Copy sandbox output step, cleanup before artifact upload, pconline-data- prefix, 50-record threshold, manual + exactly two staggered schedules, and the verified nine-step lifecycle.
 
 Integrate PConline into merge aliases, artifact retrieval, merge inputs, evidence report and release source wording without weakening baseline preservation, publication requirements, source-regression checks, or any test. Update docs source wording and ADD tests. Existing test function bodies must remain unchanged except the single workflow list assertion may add Crawl PConline.
 
-Allowed patch paths ONLY: scripts/crawl_pconline.py, .github/workflows/crawl-pconline.yml, scripts/merge_data.py, .github/workflows/merge-and-filter.yml, docs/index.html, tests/test_crawler_parsers.py, tests/test_merge_data.py, tests/test_workflow_contracts.py. Do not change any other path.\n\n""" + "\n\n".join(context)
+Allowed AI patch path ONLY: scripts/crawl_pconline.py. Do not include .github/workflows/crawl-pconline.yml or any existing file; those are deterministic generator output. Do not change any other path.\n\n""" + "\n\n".join(context)
     key = os.environ.get("ZENMUX_API_KEY")
     if not key:
         fail("ZENMUX_API_KEY is required")
@@ -1040,7 +1040,12 @@ Allowed patch paths ONLY: scripts/crawl_pconline.py, .github/workflows/crawl-pco
             # Deterministic contract pre-check on the AI-authored crawler:
             # a missing required token is a generation failure, so the next
             # effort level is tried instead of burning a validate run.
-            crawler_lower = new_files["scripts/crawl_pconline.py"].lower()
+            crawler_source = new_files["scripts/crawl_pconline.py"]
+            try:
+                ast.parse(crawler_source, filename="scripts/crawl_pconline.py")
+            except SyntaxError as exc:
+                raise ValueError("AI crawler source is incomplete or invalid") from exc
+            crawler_lower = crawler_source.lower()
             required_crawler = (
                 "pconline", "source_rank", "atomic_source_names",
                 "keyboard_flags", "get_html", "min-records",
