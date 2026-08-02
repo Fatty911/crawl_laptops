@@ -1018,7 +1018,7 @@ Allowed AI patch path ONLY: scripts/crawl_pconline.py. Do not include .github/wo
         body = json.dumps({
             "model": "deepseek/deepseek-v4-flash",
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 12000,
+            "max_tokens": 20000,
             "temperature": 0,
             "reasoning_effort": effort,
         }).encode("utf-8")
