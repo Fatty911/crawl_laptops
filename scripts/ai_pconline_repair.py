@@ -1003,7 +1003,7 @@ def generate(repo: Path, patch_out: Path) -> None:
 
 Task: add PConline (太平洋电脑网) as a third laptop source. Use official server-rendered popularity pages https://product.pconline.com.cn/notebook/s10.shtml and /notebook/{offset}s10.shtml (offset 0,25,50,75,100), GBK/GB2312-compatible decoding, source ordering as source_rank because the page has no verified numeric heat score. Product detail pages are under product.pconline.com.cn. Use existing make_session/get_html/retry helpers. Random 503 must be tolerated by those retries. Never hard-code products, counts, eligibility, or fake evidence.
 
-The crawler must write the same raw-record schema as crawl_zol.py, use source='PConline' and atomic_source_names=['PConline'], preserve source URL/rank/evidence, and keep numeric_keypad and keyboard_backlight unknown unless actual detail text proves them via keyboard_flags. It needs CLI --output, --pages, --max-items, --min-records, --delay and must fail below min-records.
+The crawler must write the same raw-record schema as crawl_zol.py, use source='PConline' and atomic_source_names=['PConline'], preserve source URL/rank/evidence, and keep numeric_keypad and keyboard_backlight unknown unless actual detail text proves them via keyboard_flags. It MUST implement argparse CLI options exactly: --output (json output path), --pages (int), --max-items (int), --min-records (int, fail the run if fewer records are collected), --delay (float). The string min-records MUST appear in the file as the argparse option name.
 
 Create the new PConline crawler and include the required workflow path in the diff. The generator replaces that workflow with a trusted template, so do not weaken its security boundary: it must use only contents:read, checkout persist-credentials:false, a proxy secret scoped to setup, the fixed run-sandboxed command, a trusted Copy sandbox output step, cleanup before artifact upload, the pconline-data- prefix, a 50-record threshold, manual + exactly two staggered schedules, and the verified nine-step lifecycle.
 
@@ -1037,6 +1037,18 @@ Allowed patch paths ONLY: scripts/crawl_pconline.py, .github/workflows/crawl-pco
             # integration edits are rebuilt deterministically so AI hunk
             # errors on existing files cannot fail generation.
             new_files = extract_new_files(repo, ai_patch)
+            # Deterministic contract pre-check on the AI-authored crawler:
+            # a missing required token is a generation failure, so the next
+            # effort level is tried instead of burning a validate run.
+            crawler_lower = new_files["scripts/crawl_pconline.py"].lower()
+            required_crawler = (
+                "pconline", "source_rank", "atomic_source_names",
+                "keyboard_flags", "get_html", "min-records",
+                "product.pconline.com.cn",
+            )
+            missing = [tok for tok in required_crawler if tok not in crawler_lower]
+            if missing:
+                raise ValueError(f"AI crawler misses required contract tokens: {missing}")
             patch = build_integration_patch(repo, new_files)
             # Self-check: the assembled patch must actually apply to HEAD.
             subprocess.run(
