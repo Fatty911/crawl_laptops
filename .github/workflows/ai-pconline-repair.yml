@@ -272,9 +272,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
-      contents: write
-      actions: write
-      workflows: write
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@main
         with:
@@ -342,18 +341,19 @@ jobs:
           git commit -m "feat: add PConline notebook popularity source"
       - name: Push exact commit with short-lived write token
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          ACTION_PAT: ${{ secrets.ACTION_PAT }}
         run: |
           set -euo pipefail
           original_url=$(git remote get-url origin)
           trap 'git remote set-url origin "$original_url"' EXIT
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          test -n "$ACTION_PAT"
+          git remote set-url origin "https://x-access-token:${ACTION_PAT}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin HEAD:main
           git remote set-url origin "$original_url"
           trap - EXIT
       - name: Dispatch and wait for Crawl to Merge to Pages
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.ACTION_PAT }}
         run: |
           set -euo pipefail
           commit_sha=$(git rev-parse HEAD)
