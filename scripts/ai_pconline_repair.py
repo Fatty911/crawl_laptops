@@ -165,7 +165,8 @@ def parse_specs(html: Any) -> dict[str, str]:
 def parse_ranking_page(html: Any, page: int) -> list[dict[str, Any]]:
     selectors = (
         "#productList li, ul#J_ProductList li, .product-list li, "
-        ".product_list li, ul.plist li, ul.prolist li, .rank-list li"
+        ".product_list li, ul.plist li, ul.prolist li, .rank-list li, "
+        ".item-title"
     )
     cards: list[Any] = []
     seen: set[int] = set()
@@ -176,7 +177,9 @@ def parse_ranking_page(html: Any, page: int) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for index, card in enumerate(cards, start=1):
         link = (
-            card.select_one("h3 a[href]") or card.select_one(".p-name a[href]")
+            card.select_one("a.item-title-name[href]")
+            or card.select_one("h3 a[href]")
+            or card.select_one(".p-name a[href]")
             or card.select_one("a.product-title[href]")
             or card.select_one("a[href*='/notebook/']")
             or card.select_one("a[href]")
@@ -918,7 +921,10 @@ def check_docs_source_line(before: str, after: str) -> None:
 def check_new_crawler(repo: Path) -> None:
     source = (repo / "scripts/crawl_pconline.py").read_text(encoding="utf-8")
     lowered = source.lower()
-    required = ("pconline", "source_rank", "atomic_source_names", "keyboard_flags", "get_html", "min-records")
+    required = (
+        "pconline", "source_rank", "atomic_source_names", "keyboard_flags",
+        "get_html", "min-records", "item-title-name",
+    )
     if any(token not in lowered for token in required):
         fail("PConline crawler misses a required source/evidence/CLI contract")
     if "product.pconline.com.cn" not in lowered:
@@ -1282,7 +1288,7 @@ def generate(repo: Path, patch_out: Path) -> None:
 
 Task: add PConline (太平洋电脑网) as a third laptop source. Use official server-rendered popularity pages https://product.pconline.com.cn/notebook/s10.shtml and /notebook/{offset}s10.shtml (offset 0,25,50,75,100), GBK/GB2312-compatible decoding, source ordering as source_rank because the page has no verified numeric heat score. Product detail pages are under product.pconline.com.cn. Use existing make_session/get_html/retry helpers. Random 503 must be tolerated by those retries. Never hard-code products, counts, eligibility, or fake evidence.
 
-The crawler must write the same raw-record schema as crawl_zol.py, use source='PConline' and atomic_source_names=['PConline'], preserve source URL/rank/evidence, and keep numeric_keypad and keyboard_backlight unknown unless actual detail text proves them via keyboard_flags. It MUST implement argparse CLI options exactly: --output (json output path), --pages (int), --max-items (int), --min-records (int, fail the run if fewer records are collected), --delay (float). The string min-records MUST appear in the file as the argparse option name.
+The crawler must write the same raw-record schema as crawl_zol.py, use source='PConline' and atomic_source_names=['PConline'], preserve source URL/rank/evidence, and keep numeric_keypad and keyboard_backlight unknown unless actual detail text proves them via keyboard_flags. The live ranking markup uses product rows with div.item-title and anchors a.item-title-name[href] (25 product anchors on the first page); support that selector while retaining reasonable older selectors. It MUST implement argparse CLI options exactly: --output (json output path), --pages (int), --max-items (int), --min-records (int, fail the run if fewer records are collected), --delay (float). The string min-records MUST appear in the file as the argparse option name.
 
 Return exactly one new-file diff for scripts/crawl_pconline.py. Do not include the workflow or any existing file: the generator deterministically adds the trusted workflow and all integration edits. The crawler must be complete and syntactically valid, implement the exact hyphenated argparse flags --output, --pages, --max-items, --min-records, and --delay, and fail below --min-records. The workflow security boundary is fixed outside model output: contents:read, checkout persist-credentials:false, proxy secret scoped to setup, fixed run-sandboxed command, trusted Copy sandbox output step, cleanup before artifact upload, pconline-data- prefix, 50-record threshold, manual + exactly two staggered schedules, and the verified nine-step lifecycle.
 
@@ -1327,7 +1333,7 @@ Allowed AI patch path ONLY: scripts/crawl_pconline.py. Do not include .github/wo
             crawler_lower = crawler_source.lower()
             required_crawler = (
                 "pconline", "source_rank", "atomic_source_names",
-                "keyboard_flags", "get_html", "min-records",
+                "keyboard_flags", "get_html", "min-records", "item-title-name",
                 "product.pconline.com.cn",
             )
             missing = [tok for tok in required_crawler if tok not in crawler_lower]

@@ -605,5 +605,7 @@ def test_deterministic_crawler_fallback_is_complete():
         "--max-items",
         "--min-records",
         "--delay",
+        ".item-title",
+        "item-title-name",
     ):
         assert token in lowered
