@@ -562,9 +562,21 @@ def test_build_integration_patch_applies_cleanly(tmp_path):
     patch = repair.build_integration_patch(root, new_files)
     assert patch.startswith("diff --git ")
     import subprocess as _sp
+    import io as _io
+    import tarfile as _tarfile
+    base = tmp_path / "base"
+    base.mkdir()
+    archive = _sp.run(
+        ["git", "archive", "HEAD"],
+        cwd=root,
+        capture_output=True,
+        check=True,
+    ).stdout
+    with _tarfile.open(fileobj=_io.BytesIO(archive), mode="r:") as bundle:
+        bundle.extractall(base, filter="data")
     result = _sp.run(
         ["git", "apply", "--check", "--whitespace=error", "-"],
-        cwd=root, input=patch.encode("utf-8"), capture_output=True,
+        cwd=base, input=patch.encode("utf-8"), capture_output=True,
     )
     assert result.returncode == 0, result.stderr.decode("utf-8", "replace")[-500:]
     assert "scripts/crawl_pconline.py" in patch
