@@ -1,6 +1,7 @@
 from scripts.merge_data import (
     atomic_sources,
     build_identity_key,
+    canonical_cpu_identity,
     canonical_model_family,
     merge_records,
     normalize_source_name,
@@ -72,6 +73,40 @@ def test_catalog_identity_keeps_neighboring_model_families_distinct():
     y7000["cpu"] = y7000p["cpu"] = "i7-14650HX"
 
     assert build_identity_key(y7000) != build_identity_key(y7000p)
+
+
+def test_catalog_identity_normalizes_intel_cpu_aliases_across_sources():
+    zol = laptop(
+        "ZOL", price=6999, title="华硕天选7 Pro 酷睿版(Ultra 7 251HX/16GB/1TB)"
+    )
+    pconline = laptop(
+        "PConline",
+        price=6899,
+        title="华硕天选7 Pro 酷睿版(酷睿Ultra7 251HX/16GB/1TB)",
+    )
+    zol["model"] = zol["title"]
+    pconline["model"] = pconline["title"]
+    zol["brand"] = pconline["brand"] = "华硕"
+    zol["cpu"] = "Intel 酷睿Ultra 7 251HX"
+    pconline["cpu"] = pconline["title"]
+
+    assert canonical_cpu_identity(zol) == "intel-ultra7-251hx"
+    assert build_identity_key(zol) == build_identity_key(pconline)
+
+
+def test_catalog_identity_normalizes_amd_cpu_aliases_across_sources():
+    zol = laptop("ZOL", price=6999, title="华硕天选6 Pro 锐龙版(锐龙9 8940HX/16GB/1TB)")
+    pconline = laptop(
+        "PConline", price=6899, title="华硕天选6 Pro 锐龙版(R9-8940HX/16GB/1TB)"
+    )
+    zol["model"] = zol["title"]
+    pconline["model"] = pconline["title"]
+    zol["brand"] = pconline["brand"] = "华硕"
+    zol["cpu"] = "AMD Ryzen 9 8940HX"
+    pconline["cpu"] = "R9-8940HX"
+
+    assert canonical_cpu_identity(pconline) == "amd-r9-8940hx"
+    assert build_identity_key(zol) == build_identity_key(pconline)
 
 
 def test_jd_merchant_parentheses_do_not_collapse_model_identity():

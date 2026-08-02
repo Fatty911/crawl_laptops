@@ -182,11 +182,45 @@ def build_identity_key(record: dict[str, Any]) -> str:
 
     brand = normalize_brand(record.get("brand"), str(record.get("title", "")))
     model = canonical_model_family(record)
-    cpu = record.get("cpu") or ""
-    base = "|".join((_identity_text(brand), model, _identity_text(cpu)))
+    cpu = canonical_cpu_identity(record)
+    base = "|".join((_identity_text(brand), model, cpu))
     if base.replace("|", ""):
         return hashlib.sha256(base.encode("utf-8")).hexdigest()[:24]
     raise ValueError("record has no usable brand/model/title identity")
+
+
+def canonical_cpu_identity(record: dict[str, Any]) -> str:
+    """Normalize vendor aliases used for the same CPU in catalog titles."""
+
+    value = unicodedata.normalize(
+        "NFKC",
+        " ".join(
+            str(record.get(field) or "") for field in ("cpu", "model", "title")
+        ),
+    )
+    suffix = r"(HX|HS|HK|H|UL|UP|U|Y|G[147])"
+    patterns = (
+        (
+            rf"(?:Intel|英特尔)?\s*(?:Core|酷睿)?\s*Ultra\s*([3579])"
+            rf"\s*[- ]?(\d{{3,5}})\s*{suffix}\b",
+            lambda match: f"intel-ultra{match[1]}-{match[2]}{match[3]}",
+        ),
+        (
+            rf"(?:Intel|英特尔)?\s*(?:Core|酷睿)?\s*i([3579])"
+            rf"\s*[- ]?(\d{{3,5}})\s*{suffix}\b",
+            lambda match: f"intel-i{match[1]}-{match[2]}{match[3]}",
+        ),
+        (
+            rf"(?:AMD)?\s*(?:Ryzen|锐龙|R)\s*([3579])"
+            rf"\s*[- ]?(\d{{4,5}})\s*{suffix}\b",
+            lambda match: f"amd-r{match[1]}-{match[2]}{match[3]}",
+        ),
+    )
+    for pattern, render in patterns:
+        match = re.search(pattern, value, flags=re.I)
+        if match:
+            return render(match).lower()
+    return _identity_text(extract_cpu_model(record.get("cpu")))
 
 
 def extract_cpu_model(text: Any) -> str:
