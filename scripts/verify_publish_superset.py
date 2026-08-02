@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.merge_data import meets_publish_requirements
+    from scripts.merge_data import build_identity_key, meets_publish_requirements
 except ModuleNotFoundError:
-    from merge_data import meets_publish_requirements
+    from merge_data import build_identity_key, meets_publish_requirements
 
 
 def identities(payload: dict[str, Any], eligible_only: bool = False) -> set[str]:
@@ -20,8 +20,10 @@ def identities(payload: dict[str, Any], eligible_only: bool = False) -> set[str]
     for item in payload.get("items", []):
         if eligible_only and not meets_publish_requirements(item)[0]:
             continue
-        if item.get("identity_key"):
-            result.add(str(item["identity_key"]))
+        # Recompute with the current identity schema so a deliberate identity
+        # migration does not look like a total publish shrink merely because
+        # the persisted hash values were produced by an older algorithm.
+        result.add(build_identity_key(item))
     return result
 
 
