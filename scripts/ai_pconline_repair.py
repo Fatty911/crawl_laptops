@@ -30,6 +30,76 @@ NEW_FILES = {
     "scripts/crawl_pconline.py",
     ".github/workflows/crawl-pconline.yml",
 }
+
+# The workflow is a security boundary, so its permissions, proxy scope, and
+# sandbox lifecycle are fixed by this generator rather than authored by the
+# model.  Keep this in the production generator instead of importing the test
+# fixture, so every generated patch receives the same trusted shape.
+PCONLINE_WORKFLOW_TEMPLATE = """name: Crawl PConline
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "07 4 * * 3"
+    - cron: "07 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crawl-source
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Configure required crawler proxy
+        env:
+          PROXY_SUBSCRIPTIONS: ${{ secrets.PROXY_SUBSCRIPTIONS }}
+        run: >-
+          python scripts/setup_proxy_runtime.py
+          --require-proxy
+          --test-url https://product.pconline.com.cn/notebook/s10.shtml
+      - name: Crawl popularity ranking
+        run: >-
+          python scripts/ai_pconline_repair.py run-sandboxed
+          --out "$RUNNER_TEMP/ai-sandbox-out" --
+          python scripts/crawl_pconline.py
+          --output /out/latest.json
+          --pages 5
+          --max-items 120
+          --min-records 50
+      - name: Copy sandbox output
+        run: >-
+          test -s "$RUNNER_TEMP/ai-sandbox-out/latest.json" &&
+          cp "$RUNNER_TEMP/ai-sandbox-out/latest.json" data/raw/pconline/latest.json
+      - name: Clear crawler proxy environment
+        if: always()
+        run: python scripts/setup_proxy_runtime.py --clear
+      - name: Set artifact date
+        id: date
+        run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+      - name: Upload crawler data
+        uses: actions/upload-artifact@main
+        with:
+          name: pconline-data-${{ steps.date.outputs.date }}
+          path: data/raw/pconline/latest.json
+          if-no-files-found: error
+          retention-days: 30
+"""
 EXISTING_FILES = {
     "scripts/merge_data.py",
     ".github/workflows/merge-and-filter.yml",
@@ -105,7 +175,16 @@ def fail(message: str) -> None:
 
 
 def run(command: list[str], cwd: Path, *, capture: bool = False) -> str:
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=capture)
+    # Git emits UTF-8 file contents in diffs; make capture deterministic on
+    # Windows hosts whose active code page may be GBK.
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=capture,
+    )
     if result.returncode:
         details = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
         fail(f"command failed: {' '.join(command)}\n{details[-4000:]}")
@@ -877,6 +956,10 @@ def build_integration_patch(repo: Path, new_files: dict[str, str]) -> str:
     """Deterministically construct the full PConline patch: AI-authored new
     files plus scripted integration edits, emitted as a unified diff that
     must apply cleanly to HEAD."""
+    # Do not allow model output to alter this security-sensitive workflow.
+    # The crawler remains the only model-authored new file.
+    new_files = dict(new_files)
+    new_files[".github/workflows/crawl-pconline.yml"] = PCONLINE_WORKFLOW_TEMPLATE
     tmp = Path(tempfile.mkdtemp(prefix="pconline-build-"))
     worktree = tmp / "wt"
     try:
@@ -915,7 +998,7 @@ Task: add PConline (太平洋电脑网) as a third laptop source. Use official s
 
 The crawler must write the same raw-record schema as crawl_zol.py, use source='PConline' and atomic_source_names=['PConline'], preserve source URL/rank/evidence, and keep numeric_keypad and keyboard_backlight unknown unless actual detail text proves them via keyboard_flags. It needs CLI --output, --pages, --max-items, --min-records, --delay and must fail below min-records.
 
-Create a Crawl PConline workflow patterned after Crawl ZOL: required proxy only in its setup step, source test URL, clear proxy before artifact upload, artifact prefix pconline-data-, 50-record threshold, manual + exactly two staggered schedules, contents:read only, checkout persist-credentials:false, and exactly the verified eight-step ZOL-shaped lifecycle.
+Create the new PConline crawler and include the required workflow path in the diff. The generator replaces that workflow with a trusted template, so do not weaken its security boundary: it must use only contents:read, checkout persist-credentials:false, a proxy secret scoped to setup, the fixed run-sandboxed command, a trusted Copy sandbox output step, cleanup before artifact upload, the pconline-data- prefix, a 50-record threshold, manual + exactly two staggered schedules, and the verified nine-step lifecycle.
 
 Integrate PConline into merge aliases, artifact retrieval, merge inputs, evidence report and release source wording without weakening baseline preservation, publication requirements, source-regression checks, or any test. Update docs source wording and ADD tests. Existing test function bodies must remain unchanged except the single workflow list assertion may add Crawl PConline.
 

@@ -528,7 +528,7 @@ def test_apply_deterministic_edits_matches_guards(tmp_path):
     assert "Crawl PConline" in (tmp_path / "tests/test_workflow_contracts.py").read_text(encoding="utf-8")
 
 
-def test_build_integration_patch_applies_cleanly():
+def test_build_integration_patch_applies_cleanly(tmp_path):
     root = Path(__file__).resolve().parents[1]
     new_files = {
         "scripts/crawl_pconline.py": "source = 'PConline'\n",
@@ -545,3 +545,9 @@ def test_build_integration_patch_applies_cleanly():
     assert "scripts/crawl_pconline.py" in patch
     assert "scripts/merge_data.py" in patch
     assert ".github/workflows/merge-and-filter.yml" in patch
+    assert 'python scripts/ai_pconline_repair.py run-sandboxed' in patch
+    assert 'name: Copy sandbox output' in patch
+    workflow = tmp_path / ".github" / "workflows" / "crawl-pconline.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(repair.PCONLINE_WORKFLOW_TEMPLATE, encoding="utf-8")
+    repair.check_new_workflow(tmp_path)
