@@ -338,6 +338,7 @@ def test_reviewer_requires_visible_strict_json_and_bounded_reasoning_configurati
     with pytest.raises(json.JSONDecodeError):
         parse_json_reply("")
     reviewer_source = (Path(__file__).resolve().parents[1] / "scripts" / "ai_patch_review.py").read_text(encoding="utf-8")
+    assert 'REVIEW_MODEL = "deepseek-ai/deepseek-v4-flash"' in reviewer_source
     assert '"reasoning_effort": "high"' in reviewer_source
     assert "429, 500, 502, 503, 504, 529" in reviewer_source
     class Response:

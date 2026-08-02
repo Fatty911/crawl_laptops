@@ -182,7 +182,7 @@ jobs:
         with:
           name: pconline-validation-${{ github.run_id }}
           path: ${{ runner.temp }}
-      - name: GLM-5.2 high final review of exact validated diff
+      - name: DeepSeek V4 Flash final review of exact validated diff
         env:
           NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
           DMIT_PROXY_URL: ${{ secrets.DMIT_PROXY_URL }}
@@ -244,7 +244,7 @@ jobs:
           assert validation["base_sha"] == os.environ["BASE_SHA"]
           assert required_checks <= set(validation["checks"])
           assert validation["patch_sha256"] == digest == review["patch_sha256"]
-          assert review["reviewer_model"] == "z-ai/glm-5.2"
+          assert review["reviewer_model"] == "deepseek-ai/deepseek-v4-flash"
           assert review["review"]["verdict"] == "PASS"
           PY
       - name: Fresh static validation without executing generated files
@@ -310,7 +310,7 @@ jobs:
           test "$(jq -er '.patch_sha256' "$validation")" = "$digest"
           test "$(jq -er '.patch_sha256' "$review")" = "$digest"
           test "$(jq -er '.patch_sha256' "$final_validation")" = "$digest"
-          test "$(jq -er '.reviewer_model' "$review")" = "z-ai/glm-5.2"
+          test "$(jq -er '.reviewer_model' "$review")" = "deepseek-ai/deepseek-v4-flash"
           test "$(jq -er '.review.verdict' "$review")" = "PASS"
           for check in patch_scope merge_aliases merge_workflow docs_copy test_preservation \
               pconline_crawler_contract pconline_workflow_contract py_compile pytest; do

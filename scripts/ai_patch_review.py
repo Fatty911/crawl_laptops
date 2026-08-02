@@ -15,6 +15,8 @@ from pathlib import Path
 
 import requests
 
+REVIEW_MODEL = "deepseek-ai/deepseek-v4-flash"
+
 
 def fail(message: str) -> None:
     raise ValueError(message)
@@ -116,7 +118,7 @@ Return exactly JSON and no markdown: {{"verdict":"PASS" or "FAIL","findings":["s
 <VALIDATION_RECORD>{json.dumps(validation, ensure_ascii=False, sort_keys=True)}</VALIDATION_RECORD>
 <PATCH_DATA>{patch}</PATCH_DATA>'''
         body = json.dumps({
-            "model": "z-ai/glm-5.2",
+            "model": REVIEW_MODEL,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
@@ -126,7 +128,7 @@ Return exactly JSON and no markdown: {{"verdict":"PASS" or "FAIL","findings":["s
             "reasoning_effort": "high",
         }).encode("utf-8")
         payload = post_review(body, key)
-        if payload.get("model") != "z-ai/glm-5.2":
+        if payload.get("model") != REVIEW_MODEL:
             fail(f"unexpected reviewer model: {payload.get('model')}")
         content = payload.get("choices", [{}])[0].get("message", {}).get("content") or ""
         review = parse_json_reply(content)
