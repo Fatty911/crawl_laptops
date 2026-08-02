@@ -617,5 +617,6 @@ def test_deterministic_crawler_fallback_is_complete():
         "--delay",
         ".item-title",
         "item-title-name",
+        "item.update(title_",
     ):
         assert token in lowered
