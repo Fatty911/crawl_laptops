@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 import pytest
@@ -554,3 +555,22 @@ def test_build_integration_patch_applies_cleanly(tmp_path):
     workflow.parent.mkdir(parents=True)
     workflow.write_text(repair.PCONLINE_WORKFLOW_TEMPLATE, encoding="utf-8")
     repair.check_new_workflow(tmp_path)
+
+
+def test_deterministic_crawler_fallback_is_complete():
+    source = repair.PCONLINE_CRAWLER_TEMPLATE
+    ast.parse(source, filename="scripts/crawl_pconline.py")
+    lowered = source.lower()
+    for token in (
+        "product.pconline.com.cn",
+        "source_rank",
+        "atomic_source_names",
+        "keyboard_flags",
+        "get_html",
+        "--output",
+        "--pages",
+        "--max-items",
+        "--min-records",
+        "--delay",
+    ):
+        assert token in lowered
