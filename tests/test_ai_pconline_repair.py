@@ -138,6 +138,7 @@ jobs:
           --min-records 50
       - name: Copy sandbox output
         run: >-
+          mkdir -p data/raw/pconline &&
           test -s "$RUNNER_TEMP/ai-sandbox-out/latest.json" &&
           cp "$RUNNER_TEMP/ai-sandbox-out/latest.json" data/raw/pconline/latest.json
       - name: Clear crawler proxy environment
@@ -450,6 +451,7 @@ def test_new_workflow_guard_rejects_missing_sandbox_copy_step(tmp_path):
     unsafe = SAFE_PCONLINE_WORKFLOW.replace(
         "      - name: Copy sandbox output\n"
         "        run: >-\n"
+        "          mkdir -p data/raw/pconline &&\n"
         "          test -s \"$RUNNER_TEMP/ai-sandbox-out/latest.json\" &&\n"
         "          cp \"$RUNNER_TEMP/ai-sandbox-out/latest.json\" data/raw/pconline/latest.json\n",
         "",
@@ -594,9 +596,13 @@ def test_build_integration_patch_applies_cleanly(tmp_path):
     )
     assert result.returncode == 0, result.stderr.decode("utf-8", "replace")[-500:]
     assert "scripts/crawl_pconline.py" in patch
-    assert "scripts/merge_data.py" in patch
-    assert ".github/workflows/merge-and-filter.yml" in patch
-    assert 'python scripts/ai_pconline_repair.py run-sandboxed' in patch
+    integrated = '"pconline": "PConline"' in repair.git_show(root, "scripts/merge_data.py")
+    assert ("scripts/merge_data.py" in patch) is not integrated
+    assert (".github/workflows/merge-and-filter.yml" in patch) is not integrated
+    if integrated:
+        assert "mkdir -p data/raw/pconline" in patch
+    else:
+        assert 'python scripts/ai_pconline_repair.py run-sandboxed' in patch
     assert 'name: Copy sandbox output' in patch
     workflow = tmp_path / ".github" / "workflows" / "crawl-pconline.yml"
     workflow.parent.mkdir(parents=True)

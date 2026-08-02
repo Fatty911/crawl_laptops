@@ -47,6 +47,7 @@ jobs:
           --min-records 50
       - name: Copy sandbox output
         run: >-
+          mkdir -p data/raw/pconline &&
           test -s "$RUNNER_TEMP/ai-sandbox-out/latest.json" &&
           cp "$RUNNER_TEMP/ai-sandbox-out/latest.json" data/raw/pconline/latest.json
       - name: Clear crawler proxy environment

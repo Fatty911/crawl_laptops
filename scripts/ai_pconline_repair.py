@@ -87,6 +87,7 @@ jobs:
           --min-records 50
       - name: Copy sandbox output
         run: >-
+          mkdir -p data/raw/pconline &&
           test -s "$RUNNER_TEMP/ai-sandbox-out/latest.json" &&
           cp "$RUNNER_TEMP/ai-sandbox-out/latest.json" data/raw/pconline/latest.json
       - name: Clear crawler proxy environment
@@ -764,6 +765,8 @@ def check_source_alias_change(before: str, after: str) -> None:
     if any(new_aliases.get(key) != value for key, value in old_aliases.items()):
         fail("existing source aliases changed")
     additions = {key: value for key, value in new_aliases.items() if key not in old_aliases}
+    if not additions and old_aliases == new_aliases:
+        return
     if not additions or any(value != "PConline" for value in additions.values()):
         fail("new aliases must map only to PConline")
     if any("pconline" not in key.lower() and "太平洋" not in key for key in additions):
@@ -908,6 +911,8 @@ def check_docs_source_line(before: str, after: str) -> None:
     new_phrase = "聚合 ZOL 热度榜、京东销量榜与 PConline 热门榜"
     old_lines = [line for line in before.splitlines() if old_phrase in line]
     new_lines = [line for line in after.splitlines() if "聚合 ZOL 热度榜" in line]
+    if not old_lines and before == after and len(new_lines) == 1:
+        return
     if len(old_lines) != 1 or len(new_lines) != 1:
         fail("docs source wording line must remain unique")
     old_line = old_lines[0]
@@ -1018,6 +1023,7 @@ def check_new_workflow(repo: Path) -> None:
     if copy_step != {
         "name": "Copy sandbox output",
         "run": (
+            "mkdir -p data/raw/pconline && "
             "test -s \"$RUNNER_TEMP/ai-sandbox-out/latest.json\" && "
             "cp \"$RUNNER_TEMP/ai-sandbox-out/latest.json\" data/raw/pconline/latest.json"
         ),
@@ -1113,9 +1119,12 @@ def apply_deterministic_edits(worktree: Path) -> None:
         '    "太平洋电脑网": "PConline",\n'
         '    "太平洋": "PConline",\n}'
     )
-    if old_aliases not in source:
+    if old_aliases in source:
+        path.write_text(source.replace(old_aliases, new_aliases, 1), encoding="utf-8")
+    elif all(line in source for line in new_aliases.splitlines()):
+        pass
+    else:
         fail("merge_data.py SOURCE_ALIASES shape changed; deterministic edit no longer applies")
-    path.write_text(source.replace(old_aliases, new_aliases, 1), encoding="utf-8")
 
     # merge-and-filter.yml: workflow list, mkdir, artifact download block,
     # failure condition, merge inputs, raw inputs, notes wording.
@@ -1183,9 +1192,13 @@ def apply_deterministic_edits(worktree: Path) -> None:
         ),
     )
     for old, new in replacements:
-        if old not in source:
+        if new in source:
+            continue
+        if old in source:
+            source = source.replace(old, new, 1)
+            continue
+        else:
             fail(f"merge-and-filter.yml lost expected line {old!r}; deterministic edit no longer applies")
-        source = source.replace(old, new, 1)
     path.write_text(source, encoding="utf-8")
 
     # docs/index.html: single source-wording line.
@@ -1193,9 +1206,12 @@ def apply_deterministic_edits(worktree: Path) -> None:
     source = path.read_text(encoding="utf-8")
     old_phrase = "聚合 ZOL 热度榜与京东销量榜"
     new_phrase = "聚合 ZOL 热度榜、京东销量榜与 PConline 热门榜"
-    if old_phrase not in source:
+    if old_phrase in source:
+        path.write_text(source.replace(old_phrase, new_phrase, 1), encoding="utf-8")
+    elif new_phrase in source:
+        pass
+    else:
         fail("docs/index.html lost the source-wording line; deterministic edit no longer applies")
-    path.write_text(source.replace(old_phrase, new_phrase, 1), encoding="utf-8")
 
     # tests: update the one workflow trigger assertion and append additive
     # PConline tests (existing test bodies otherwise stay untouched).
@@ -1209,9 +1225,12 @@ def apply_deterministic_edits(worktree: Path) -> None:
         '    assert event_config["workflow_run"]["workflows"] == '
         '["Crawl ZOL", "Crawl JD", "Crawl PConline"]'
     )
-    if old_trigger_assertion not in source:
+    if old_trigger_assertion in source:
+        path.write_text(source.replace(old_trigger_assertion, new_trigger_assertion, 1), encoding="utf-8")
+    elif new_trigger_assertion in source:
+        pass
+    else:
         fail("tests/test_workflow_contracts.py trigger assertion shape changed")
-    path.write_text(source.replace(old_trigger_assertion, new_trigger_assertion, 1), encoding="utf-8")
 
     test_additions = {
         "tests/test_crawler_parsers.py": (
@@ -1232,7 +1251,8 @@ def apply_deterministic_edits(worktree: Path) -> None:
     for relative, addition in test_additions.items():
         path = worktree / relative
         source = path.read_text(encoding="utf-8")
-        path.write_text(source.rstrip() + addition, encoding="utf-8")
+        if addition.strip() not in source:
+            path.write_text(source.rstrip() + addition, encoding="utf-8")
 
 
 def build_integration_patch(repo: Path, new_files: dict[str, str]) -> str:
