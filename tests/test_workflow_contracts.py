@@ -70,9 +70,9 @@ def test_merge_only_runs_for_successful_source_completion_or_manual_dispatch():
     assert names.index("Create or update rolling data release") < names.index(
         "Trigger Pages deployment"
     )
-    assert "gh workflow run deploy-pages.yml --ref main" in steps[
-        names.index("Trigger Pages deployment")
-    ]["run"]
+    trigger_step = steps[names.index("Trigger Pages deployment")]
+    assert "gh workflow run deploy-pages.yml --ref main" in trigger_step["run"]
+    assert "secrets.ACTION_PAT || github.token" in workflow["jobs"]["merge"]["env"]["GH_TOKEN"]
 
 
 def test_pages_keeps_manual_and_release_triggers():
