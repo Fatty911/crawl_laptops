@@ -385,7 +385,7 @@ FORBIDDEN_TEXT = (
     "ssh ",
 )
 
-SANDBOX_IMAGE = "python:3.12-slim"
+SANDBOX_IMAGE = "python:3.12"
 SANDBOX_WORKSPACE = "/workspace"
 SANDBOX_OUT = "/out"
 SANDBOX_TEMP = "/out/tmp"
@@ -1181,7 +1181,22 @@ def apply_deterministic_edits(worktree: Path) -> None:
         fail("docs/index.html lost the source-wording line; deterministic edit no longer applies")
     path.write_text(source.replace(old_phrase, new_phrase, 1), encoding="utf-8")
 
-    # tests: append additive PConline tests (existing bodies untouched).
+    # tests: update the one workflow trigger assertion and append additive
+    # PConline tests (existing test bodies otherwise stay untouched).
+    path = worktree / "tests/test_workflow_contracts.py"
+    source = path.read_text(encoding="utf-8")
+    old_trigger_assertion = (
+        '    assert event_config["workflow_run"]["workflows"] == '
+        '["Crawl ZOL", "Crawl JD"]'
+    )
+    new_trigger_assertion = (
+        '    assert event_config["workflow_run"]["workflows"] == '
+        '["Crawl ZOL", "Crawl JD", "Crawl PConline"]'
+    )
+    if old_trigger_assertion not in source:
+        fail("tests/test_workflow_contracts.py trigger assertion shape changed")
+    path.write_text(source.replace(old_trigger_assertion, new_trigger_assertion, 1), encoding="utf-8")
+
     test_additions = {
         "tests/test_crawler_parsers.py": (
             "\n\ndef test_pconline_parser_keeps_rank_order():\n"

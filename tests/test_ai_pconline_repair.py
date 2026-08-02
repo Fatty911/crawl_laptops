@@ -545,7 +545,9 @@ def test_apply_deterministic_edits_matches_guards(tmp_path):
     after_wf = (tmp_path / ".github/workflows/merge-and-filter.yml").read_text(encoding="utf-8")
     assert 'workflows: ["Crawl ZOL", "Crawl JD", "Crawl PConline"]' in after_wf
     assert "data/raw/pconline/latest.json" in after_wf
-    assert "Crawl PConline" in (tmp_path / "tests/test_workflow_contracts.py").read_text(encoding="utf-8")
+    after_contracts = (tmp_path / "tests/test_workflow_contracts.py").read_text(encoding="utf-8")
+    assert 'event_config["workflow_run"]["workflows"] == ["Crawl ZOL", "Crawl JD", "Crawl PConline"]' in after_contracts
+    assert "Crawl PConline" in after_contracts
 
 
 def test_build_integration_patch_applies_cleanly(tmp_path):
