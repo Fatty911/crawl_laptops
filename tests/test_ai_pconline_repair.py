@@ -277,6 +277,8 @@ def test_bootstrap_workflow_guards_untrusted_runs_and_fresh_finalize():
     assert "run-sandboxed" in validate_runs
     assert "python scripts/crawl_pconline.py\n" not in validate_runs.replace("python scripts/ai_pconline_repair.py run-sandboxed", "")
     assert "Lock proxy secret paths away from the sandbox" in names
+    review_runs = "\n".join(str(step.get("run", "")) for step in jobs["review"]["steps"])
+    assert "python -m pip install -r requirements.txt" in review_runs
     finalize = jobs["finalize"]
     checkout = next(step for step in finalize["steps"] if step.get("uses") == "actions/checkout@main")
     assert checkout["with"]["persist-credentials"] is False

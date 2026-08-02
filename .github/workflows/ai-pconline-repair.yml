@@ -177,6 +177,7 @@ jobs:
       - uses: actions/setup-python@main
         with:
           python-version: "3.12"
+      - run: python -m pip install -r requirements.txt
       - uses: actions/download-artifact@main
         with:
           name: pconline-validation-${{ github.run_id }}
