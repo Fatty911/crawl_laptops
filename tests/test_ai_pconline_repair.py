@@ -478,6 +478,19 @@ def test_docker_base_locks_isolation_flags(monkeypatch, tmp_path):
         assert "/var/run/docker.sock" not in joined
 
 
+def test_sandbox_syntax_check_does_not_write_workspace_bytecode(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(command, cwd, **kwargs):
+        calls.append(list(command))
+        return ""
+
+    monkeypatch.setattr(repair, "run", fake_run)
+    repair.run_sandboxed(tmp_path, tmp_path / "out", repair.SANDBOX_SYNTAX_COMMAND)
+    assert "-m py_compile" not in " ".join(calls[1])
+    assert "compile(open(" in " ".join(calls[1])
+
+
 def test_run_sandboxed_rejects_shell_metacharacters(monkeypatch, tmp_path):
     called = []
 

@@ -404,6 +404,12 @@ SANDBOX_ENV = (
     f"NO_PROXY={SANDBOX_NO_PROXY}",
     "PROXY_ENABLED=false",
 )
+SANDBOX_SYNTAX_COMMAND = [
+    "python",
+    "-c",
+    "compile(open('scripts/crawl_pconline.py', encoding='utf-8').read(), "
+    "'scripts/crawl_pconline.py', 'exec')",
+]
 
 
 def fail(message: str) -> None:
@@ -1357,7 +1363,9 @@ def validate(repo: Path, patch_path: Path, report_path: Path, *, execute_generat
     if execute_generated:
         if sandbox_out is None:
             sandbox_out = Path(tempfile.mkdtemp(prefix="ai-sandbox-out-"))
-        run_sandboxed(repo, sandbox_out, ["python", "-m", "py_compile", "scripts/crawl_pconline.py"])
+        # py_compile writes __pycache__ beside the read-only workspace file;
+        # compile() performs the same syntax check without any filesystem write.
+        run_sandboxed(repo, sandbox_out, SANDBOX_SYNTAX_COMMAND)
         run_sandboxed(repo, sandbox_out, ["python", "-m", "pytest", "-q"])
         checks.extend(["py_compile", "pytest"])
     report_path.write_text(json.dumps({
