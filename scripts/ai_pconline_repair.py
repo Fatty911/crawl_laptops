@@ -1279,7 +1279,28 @@ def build_integration_patch(repo: Path, new_files: dict[str, str]) -> str:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def write_deterministic_fallback(repo: Path, patch_out: Path) -> None:
+    """Emit the reviewed crawler when model generation is not explicitly enabled."""
+    print("using deterministic PConline crawler fallback", file=sys.stderr)
+    patch = build_integration_patch(
+        repo, {"scripts/crawl_pconline.py": PCONLINE_CRAWLER_TEMPLATE},
+    )
+    subprocess.run(
+        ["git", "apply", "--check", "--whitespace=error", "-"],
+        cwd=repo, input=patch.encode("utf-8"), capture_output=True, check=True,
+    )
+    patch_out.write_text(patch, encoding="utf-8")
+
+
 def generate(repo: Path, patch_out: Path) -> None:
+    # Model output remains available for deliberate experiments, but the
+    # production repair path defaults to the complete crawler template that
+    # has passed the real DOM/output contract. This prevents an apparently
+    # valid model diff from reaching the network smoke gate with a latent
+    # runtime bug.
+    if os.environ.get("AI_PCONLINE_MODEL_GENERATOR") != "1":
+        write_deterministic_fallback(repo, patch_out)
+        return
     context: list[str] = []
     for relative in CONTEXT_FILES:
         path = repo / relative
@@ -1365,15 +1386,7 @@ Allowed AI patch path ONLY: scripts/crawl_pconline.py. Do not include .github/wo
     # through the same integration and validation gates.  This avoids turning
     # a transient provider/output-limit failure into an incomplete production
     # source or a permanently frozen repair task.
-    print("generator output rejected; using deterministic crawler fallback", file=sys.stderr)
-    patch = build_integration_patch(
-        repo, {"scripts/crawl_pconline.py": PCONLINE_CRAWLER_TEMPLATE},
-    )
-    subprocess.run(
-        ["git", "apply", "--check", "--whitespace=error", "-"],
-        cwd=repo, input=patch.encode("utf-8"), capture_output=True, check=True,
-    )
-    patch_out.write_text(patch, encoding="utf-8")
+    write_deterministic_fallback(repo, patch_out)
 
 
 def validate(repo: Path, patch_path: Path, report_path: Path, *, execute_generated: bool = True, sandbox_out: Path | None = None) -> None:

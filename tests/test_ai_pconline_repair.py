@@ -621,3 +621,4 @@ def test_deterministic_crawler_fallback_is_complete():
         "output.write_text",
     ):
         assert token in lowered
+    assert "AI_PCONLINE_MODEL_GENERATOR" in Path(repair.__file__).read_text(encoding="utf-8")
