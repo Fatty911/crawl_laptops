@@ -28,8 +28,8 @@ import yaml
 
 NEW_FILES = {
     "scripts/crawl_pconline.py",
-    ".github/workflows/crawl-pconline.yml",
 }
+DETERMINISTIC_NEW_FILES = {".github/workflows/crawl-pconline.yml"}
 
 # The workflow is a security boundary, so its permissions, proxy scope, and
 # sandbox lifecycle are fixed by this generator rather than authored by the
@@ -108,7 +108,7 @@ EXISTING_FILES = {
     "tests/test_merge_data.py",
     "tests/test_workflow_contracts.py",
 }
-ALLOWED_FILES = NEW_FILES | EXISTING_FILES
+ALLOWED_FILES = NEW_FILES | DETERMINISTIC_NEW_FILES | EXISTING_FILES
 CONTEXT_FILES = (
     "AGENTS.md",
     "requirements.txt",
