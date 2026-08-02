@@ -461,6 +461,9 @@ def test_docker_base_locks_isolation_flags(monkeypatch, tmp_path):
         assert "--user 65534:65534" in joined
         assert ":/workspace:ro" in joined
         assert ":/out:rw" in joined
+        assert "TMPDIR=/out/tmp" in joined
+        assert "TMP=/out/tmp" in joined
+        assert "TEMP=/out/tmp" in joined
         assert repair.SANDBOX_IMAGE in joined
         assert "/tmp/mihomo" not in joined
         assert "PROXY_SUBSCRIPTIONS" not in joined

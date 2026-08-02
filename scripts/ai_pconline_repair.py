@@ -156,11 +156,15 @@ FORBIDDEN_TEXT = (
 SANDBOX_IMAGE = "python:3.12-slim"
 SANDBOX_WORKSPACE = "/workspace"
 SANDBOX_OUT = "/out"
+SANDBOX_TEMP = "/out/tmp"
 SANDBOX_HTTP_PROXY = "http://127.0.0.1:7890"
 SANDBOX_SOCKS_PROXY = "socks5://127.0.0.1:7891"
 SANDBOX_NO_PROXY = "127.0.0.1,localhost"
 SANDBOX_ENV = (
     "HOME=/out",
+    f"TMPDIR={SANDBOX_TEMP}",
+    f"TMP={SANDBOX_TEMP}",
+    f"TEMP={SANDBOX_TEMP}",
     "PYTHONPATH=/out/deps",
     f"HTTP_PROXY={SANDBOX_HTTP_PROXY}",
     f"HTTPS_PROXY={SANDBOX_HTTP_PROXY}",
@@ -234,11 +238,14 @@ def run_sandboxed(repo: Path, out_dir: Path, command: list[str]) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     if not out_dir.is_dir():
         fail("sandbox output path is not a directory")
+    sandbox_temp = out_dir / "tmp"
+    sandbox_temp.mkdir(parents=True, exist_ok=True)
     # The sandbox runs as nobody (65534); the host-created output directory
     # must be world-writable or pip/pytest inside the container cannot write
     # /out. The directory lives under RUNNER_TEMP (per-job isolated), and the
     # trusted host re-reads its contents afterwards.
     os.chmod(out_dir, 0o777)
+    os.chmod(sandbox_temp, 0o777)
     install = docker_base(repo, out_dir) + [
         "python", "-m", "pip", "install", "--target", f"{SANDBOX_OUT}/deps", "-q",
         "pytest", "-r", f"{SANDBOX_WORKSPACE}/requirements.txt",
