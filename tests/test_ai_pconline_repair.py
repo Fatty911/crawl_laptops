@@ -453,6 +453,9 @@ def test_docker_base_locks_isolation_flags(monkeypatch, tmp_path):
     out = tmp_path / "out"
     repair.run_sandboxed(tmp_path, out, ["python", "-m", "pytest", "-q"])
     assert calls and calls[0][0] == "docker"
+    assert "HTTP_PROXY=http://127.0.0.1:7890" not in " ".join(calls[0])
+    assert "NO_PROXY=*" in " ".join(calls[0])
+    assert "HTTP_PROXY=http://127.0.0.1:7890" in " ".join(calls[1])
     for command in calls:
         joined = " ".join(command)
         assert "--read-only" in joined

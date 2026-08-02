@@ -485,7 +485,7 @@ def run_sandboxed(repo: Path, out_dir: Path, command: list[str]) -> None:
     # trusted host re-reads its contents afterwards.
     os.chmod(out_dir, 0o777)
     os.chmod(sandbox_temp, 0o777)
-    install = docker_base(repo, out_dir) + [
+    install = docker_base(repo, out_dir, proxy_env=False) + [
         "python", "-m", "pip", "install", "--target", f"{SANDBOX_OUT}/deps", "-q",
         "pytest", "-r", f"{SANDBOX_WORKSPACE}/requirements.txt",
     ]
