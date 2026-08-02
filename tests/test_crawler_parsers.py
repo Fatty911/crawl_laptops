@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 
 from scripts.crawler_utils import make_session, parse_battery_wh
+from scripts.crawl_jd import crawl as crawl_jd
 from scripts.crawl_jd import parse_search_page, sales_url, title_spec_fields
 from scripts.crawl_pconline import enrich_item
 from scripts.crawl_zol import parse_ranking_page
@@ -91,6 +92,32 @@ def test_jd_sales_url_and_title_fallback_fields():
         "机械革命极光X i7-12800HX/RTX4070 16G运行内存+1TB固态硬盘"
     )
     assert actual_title_fields["storage_gb"] == 1024
+
+
+def test_jd_keeps_valid_prefix_when_a_later_page_is_empty(monkeypatch):
+    import scripts.crawl_jd as jd
+
+    first_page = soup(
+        """
+        <li class="sku-detail">
+          <div class="p-price" data-skuid="10001"><strong>8999</strong></div>
+          <div class="p-name"><a href="https://item.jd.com/10001.html"
+            title="机械革命极光X i7-13700HX 背光键盘 数字小键盘">极光X</a></div>
+        </li>
+        """
+    )
+    pages = iter(
+        (
+            (first_page, "https://www.jd.com/hotitem/first"),
+            (soup(""), "https://www.jd.com/hotitem/second"),
+        )
+    )
+    monkeypatch.setattr(jd, "get_html", lambda *args, **kwargs: next(pages))
+    monkeypatch.setattr(jd, "enrich_item", lambda session, item, delay: item)
+
+    rows = crawl_jd(4, 120, 0, None)
+
+    assert [row["source_product_id"] for row in rows] == ["10001"]
 
 
 def test_battery_capacity_ignores_cell_count():

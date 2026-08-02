@@ -297,6 +297,11 @@ def crawl(pages: int, max_items: int, delay: float, cookie: str | None) -> list[
             )
         page_items = parse_search_page(html, page)
         if not page_items:
+            if items:
+                # JD occasionally serves an empty later page even though the
+                # first sales-ranking page is complete.  Keep the valid prefix;
+                # the caller's min-records gate still rejects undersized runs.
+                break
             raise RuntimeError(f"JD sales page {page} returned no product cards")
         for item in page_items:
             if item["source_product_id"] not in seen:

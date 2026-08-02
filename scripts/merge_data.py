@@ -135,6 +135,44 @@ def _identity_text(value: Any) -> str:
     return text
 
 
+def canonical_model_family(record: dict[str, Any]) -> str:
+    """Return the source-independent product family used for identity.
+
+    Catalog sources put configuration details after a parenthesis, but those
+    details differ in ordering and completeness between sites.  Keeping the
+    whole display title therefore prevents the same model and CPU from ever
+    meeting in one merge group.  Strip only a leading, verified brand label
+    and the parenthesized configuration suffix; model tokens such as Y7000P
+    remain intact.
+    """
+
+    raw = (
+        record.get("model_identity")
+        or record.get("model")
+        or record.get("title")
+        or record.get("name")
+    )
+    text = unicodedata.normalize("NFKC", str(raw or "")).strip()
+    sources = set(atomic_sources(record))
+    if not record.get("model_identity") and sources.intersection({"ZOL", "PConline"}):
+        text = re.split(r"[（(]", text, maxsplit=1)[0].strip()
+
+    family = _identity_text(text)
+    canonical_brand = normalize_brand(
+        record.get("brand"), str(record.get("title", ""))
+    )
+    brand_labels = {str(record.get("brand") or ""), canonical_brand}
+    brand_labels.update(
+        alias for alias, canonical in BRAND_ALIASES.items() if canonical == canonical_brand
+    )
+    for label in sorted(brand_labels, key=len, reverse=True):
+        prefix = _identity_text(label)
+        if prefix and family.startswith(prefix):
+            family = family[len(prefix):]
+            break
+    return family or _identity_text(text)
+
+
 def build_identity_key(record: dict[str, Any]) -> str:
     """Build a stable cross-source key from brand and model.
 
@@ -143,9 +181,9 @@ def build_identity_key(record: dict[str, Any]) -> str:
     """
 
     brand = normalize_brand(record.get("brand"), str(record.get("title", "")))
-    model = record.get("model") or record.get("title") or record.get("name")
+    model = canonical_model_family(record)
     cpu = record.get("cpu") or ""
-    base = "|".join((_identity_text(brand), _identity_text(model), _identity_text(cpu)))
+    base = "|".join((_identity_text(brand), model, _identity_text(cpu)))
     if base.replace("|", ""):
         return hashlib.sha256(base.encode("utf-8")).hexdigest()[:24]
     raise ValueError("record has no usable brand/model/title identity")

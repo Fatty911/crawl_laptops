@@ -1,6 +1,7 @@
 from scripts.merge_data import (
     atomic_sources,
     build_identity_key,
+    canonical_model_family,
     merge_records,
     normalize_source_name,
 )
@@ -33,6 +34,58 @@ def test_identity_key_ignores_memory_storage_and_gpu_configuration_noise():
         title="联想 ThinkBook 16+ 2025 16GB 512GB",
     )
     assert build_identity_key(first) == build_identity_key(second)
+
+
+def test_catalog_identity_joins_same_family_and_cpu_across_sources():
+    zol = laptop(
+        "ZOL",
+        price=7999,
+        title="惠普暗影精灵11(i7 14650HX/RTX5060/16GB/1TB/黑色)",
+        model="惠普暗影精灵11(i7 14650HX/RTX5060/16GB/1TB/黑色)",
+    )
+    pconline = laptop(
+        "PConline",
+        price=7899,
+        title="惠普暗影精灵11(酷睿i7-14650HX/16GB/1TB/RTX5060/2.5K/240Hz)",
+        model="惠普暗影精灵11(酷睿i7-14650HX/16GB/1TB/RTX5060/2.5K/240Hz)",
+    )
+    zol["cpu"] = pconline["cpu"] = "i7-14650HX"
+    zol["brand"] = pconline["brand"] = "惠普"
+    pconline["numeric_keypad"] = None
+
+    assert canonical_model_family(zol) == "暗影精灵11"
+    assert build_identity_key(zol) == build_identity_key(pconline)
+    merged, rejected = merge_records([zol, pconline])
+    assert rejected == []
+    assert merged[0]["atomic_source_names"] == ["PConline", "ZOL"]
+
+
+def test_catalog_identity_keeps_neighboring_model_families_distinct():
+    y7000 = laptop(
+        "ZOL", price=6999, title="联想拯救者Y7000 2025(i7-14650HX/16GB/512GB)"
+    )
+    y7000p = laptop(
+        "PConline", price=7999, title="联想拯救者Y7000P 2025(i7-14650HX/16GB/1TB)"
+    )
+    y7000["model"] = y7000["title"]
+    y7000p["model"] = y7000p["title"]
+    y7000["cpu"] = y7000p["cpu"] = "i7-14650HX"
+
+    assert build_identity_key(y7000) != build_identity_key(y7000p)
+
+
+def test_jd_merchant_parentheses_do_not_collapse_model_identity():
+    first = laptop(
+        "JD", price=6999, title="联想(Lenovo)拯救者Y7000 i7-14650HX 游戏本"
+    )
+    second = laptop(
+        "JD", price=7999, title="联想(Lenovo)拯救者Y9000P i7-14650HX 游戏本"
+    )
+    first["model"] = first["title"]
+    second["model"] = second["title"]
+    first["cpu"] = second["cpu"] = "i7-14650HX"
+
+    assert build_identity_key(first) != build_identity_key(second)
 
 
 def test_identity_deduplication_and_multi_source_merge():
