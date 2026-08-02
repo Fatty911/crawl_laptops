@@ -182,7 +182,7 @@ jobs:
         with:
           name: pconline-validation-${{ github.run_id }}
           path: ${{ runner.temp }}
-      - name: GLM-5.2 xhigh final review of exact validated diff
+      - name: GLM-5.2 high final review of exact validated diff
         env:
           NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
           DMIT_PROXY_URL: ${{ secrets.DMIT_PROXY_URL }}

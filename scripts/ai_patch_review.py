@@ -123,7 +123,7 @@ Return exactly JSON and no markdown: {{"verdict":"PASS" or "FAIL","findings":["s
             ],
             "max_tokens": 8000,
             "temperature": 0,
-            "reasoning_effort": "xhigh",
+            "reasoning_effort": "high",
         }).encode("utf-8")
         payload = post_review(body, key)
         if payload.get("model") != "z-ai/glm-5.2":
