@@ -927,6 +927,8 @@ def check_new_crawler(repo: Path) -> None:
     )
     if any(token not in lowered for token in required):
         fail("PConline crawler misses a required source/evidence/CLI contract")
+    if "output.write_text" not in lowered and "json.dump(" not in lowered:
+        fail("PConline crawler must serialize collected records to --output")
     if "product.pconline.com.cn" not in lowered:
         fail("PConline crawler must use the official product.pconline.com.cn source")
     if re.search(r"[\"']numeric_keypad[\"']\s*:\s*True", source) or re.search(r"[\"']keyboard_backlight[\"']\s*:\s*True", source):
@@ -1288,7 +1290,7 @@ def generate(repo: Path, patch_out: Path) -> None:
 
 Task: add PConline (太平洋电脑网) as a third laptop source. Use official server-rendered popularity pages https://product.pconline.com.cn/notebook/s10.shtml and /notebook/{offset}s10.shtml (offset 0,25,50,75,100), GBK/GB2312-compatible decoding, source ordering as source_rank because the page has no verified numeric heat score. Product detail pages are under product.pconline.com.cn. Use existing make_session/get_html/retry helpers. Random 503 must be tolerated by those retries. Never hard-code products, counts, eligibility, or fake evidence.
 
-The crawler must write the same raw-record schema as crawl_zol.py, use source='PConline' and atomic_source_names=['PConline'], preserve source URL/rank/evidence, and keep numeric_keypad and keyboard_backlight unknown unless actual detail text proves them via keyboard_flags. Before detail enrichment, initialize all title-derived fallback fields on each item (for example with item.update(title_fields(item["title"]))); do not read item["gpu"], item["numeric_keypad"], or other derived keys before that initialization. The live ranking markup uses product rows with div.item-title and anchors a.item-title-name[href] (25 product anchors on the first page); support that selector while retaining reasonable older selectors. It MUST implement argparse CLI options exactly: --output (json output path), --pages (int), --max-items (int), --min-records (int, fail the run if fewer records are collected), --delay (float). The string min-records MUST appear in the file as the argparse option name.
+The crawler must write the same raw-record schema as crawl_zol.py, use source='PConline' and atomic_source_names=['PConline'], preserve source URL/rank/evidence, and keep numeric_keypad and keyboard_backlight unknown unless actual detail text proves them via keyboard_flags. Before detail enrichment, initialize all title-derived fallback fields on each item (for example with item.update(title_fields(item["title"]))); do not read item["gpu"], item["numeric_keypad"], or other derived keys before that initialization. After collecting and validating records, it MUST serialize them to the exact --output path (for example output.write_text(json.dumps(items, ...)) or json.dump(...)); returning success without writing the file is invalid. The live ranking markup uses product rows with div.item-title and anchors a.item-title-name[href] (25 product anchors on the first page); support that selector while retaining reasonable older selectors. It MUST implement argparse CLI options exactly: --output (json output path), --pages (int), --max-items (int), --min-records (int, fail the run if fewer records are collected), --delay (float). The string min-records MUST appear in the file as the argparse option name.
 
 Return exactly one new-file diff for scripts/crawl_pconline.py. Do not include the workflow or any existing file: the generator deterministically adds the trusted workflow and all integration edits. The crawler must be complete and syntactically valid, implement the exact hyphenated argparse flags --output, --pages, --max-items, --min-records, and --delay, and fail below --min-records. The workflow security boundary is fixed outside model output: contents:read, checkout persist-credentials:false, proxy secret scoped to setup, fixed run-sandboxed command, trusted Copy sandbox output step, cleanup before artifact upload, pconline-data- prefix, 50-record threshold, manual + exactly two staggered schedules, and the verified nine-step lifecycle.
 
@@ -1340,6 +1342,8 @@ Allowed AI patch path ONLY: scripts/crawl_pconline.py. Do not include .github/wo
             missing = [tok for tok in required_crawler if tok not in crawler_lower]
             if missing:
                 raise ValueError(f"AI crawler misses required contract tokens: {missing}")
+            if "output.write_text" not in crawler_lower and "json.dump(" not in crawler_lower:
+                raise ValueError("AI crawler must serialize collected records to --output")
             patch = build_integration_patch(repo, new_files)
             # Self-check: the assembled patch must actually apply to HEAD.
             subprocess.run(
