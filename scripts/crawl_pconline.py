@@ -132,7 +132,10 @@ def title_fields(title: str) -> dict[str, Any]:
 def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, Any]:
     item.update(title_fields(item["title"]))
     try:
-        detail, final_url = get_html(session, item["source_url"], encoding="gb18030", delay=delay)
+        detail_url = item["source_url"]
+        if detail_url.endswith(".html") and not detail_url.endswith("_detail.html"):
+            detail_url = detail_url[:-5] + "_detail.html"
+        detail, final_url = get_html(session, detail_url, encoding="gb18030", delay=delay)
     except Exception as exc:
         item["crawl_warning"] = f"detail_failed:{type(exc).__name__}"
         return item

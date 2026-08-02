@@ -600,10 +600,12 @@ def test_build_integration_patch_applies_cleanly(tmp_path):
     assert ("scripts/merge_data.py" in patch) is not integrated
     assert (".github/workflows/merge-and-filter.yml" in patch) is not integrated
     if integrated:
-        assert "mkdir -p data/raw/pconline" in patch
+        workflow_before = repair.git_show(root, ".github/workflows/crawl-pconline.yml")
+        assert ("mkdir -p data/raw/pconline" in patch) is ("mkdir -p data/raw/pconline" not in workflow_before)
     else:
         assert 'python scripts/ai_pconline_repair.py run-sandboxed' in patch
-    assert 'name: Copy sandbox output' in patch
+    if ".github/workflows/crawl-pconline.yml" in patch:
+        assert "name: Copy sandbox output" in patch
     workflow = tmp_path / ".github" / "workflows" / "crawl-pconline.yml"
     workflow.parent.mkdir(parents=True)
     workflow.write_text(repair.PCONLINE_WORKFLOW_TEMPLATE, encoding="utf-8")
@@ -627,6 +629,7 @@ def test_deterministic_crawler_fallback_is_complete():
         "--delay",
         ".item-title",
         "item-title-name",
+        "_detail.html",
         "item.update(title_",
         "output.write_text",
     ):

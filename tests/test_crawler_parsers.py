@@ -2,6 +2,7 @@ from bs4 import BeautifulSoup
 
 from scripts.crawler_utils import make_session, parse_battery_wh
 from scripts.crawl_jd import parse_search_page, sales_url, title_spec_fields
+from scripts.crawl_pconline import enrich_item
 from scripts.crawl_zol import parse_ranking_page
 
 
@@ -107,3 +108,33 @@ def test_crawler_session_has_bounded_status_retry_and_backoff():
 def test_pconline_parser_keeps_rank_order():
     # PConline rank is the official list order; no heat score exists.
     assert True
+
+
+def test_pconline_detail_enrichment_uses_verified_detail_endpoint(monkeypatch):
+    import scripts.crawl_pconline as pconline
+
+    calls = []
+
+    def fake_get_html(session, url, **kwargs):
+        calls.append(url)
+        return soup(
+            """
+            <table>
+              <tr><th>输入设备</th><td>背光键盘，数字小键盘</td></tr>
+              <tr><th>处理器</th><td>Intel Core i7-13700HX</td></tr>
+            </table>
+            """
+        ), url
+
+    monkeypatch.setattr(pconline, "get_html", fake_get_html)
+    item = {
+        "title": "机械革命极光X i7-13700HX",
+        "source_url": "https://product.pconline.com.cn/notebook/mechrevo/2645739.html",
+    }
+
+    enriched = enrich_item(object(), item, 0)
+
+    assert calls == ["https://product.pconline.com.cn/notebook/mechrevo/2645739_detail.html"]
+    assert enriched["numeric_keypad"] is True
+    assert enriched["keyboard_backlight"] is True
+    assert enriched["spec_url"].endswith("_detail.html")
