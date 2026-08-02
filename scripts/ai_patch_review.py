@@ -24,6 +24,17 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def retry_delay(response: requests.Response, attempt: int) -> float:
+    """Give NIM rate limits time to clear without making other retries slow."""
+    if response.status_code == 429:
+        try:
+            retry_after = float(response.headers.get("Retry-After", ""))
+        except (TypeError, ValueError):
+            retry_after = 60 * (2**attempt)
+        return min(max(retry_after, 1.0), 300.0)
+    return min(3 * (2**attempt), 60)
+
+
 def post_review(body: bytes, key: str, *, retries: int = 3) -> dict:
     proxy = os.environ.get("DMIT_PROXY_URL", "").strip()
     proxies = {"http": proxy, "https": proxy} if proxy else None
@@ -39,7 +50,7 @@ def post_review(body: bytes, key: str, *, retries: int = 3) -> dict:
                 return response.json()
             if response.status_code in {429, 500, 502, 503, 504, 529} and attempt < retries - 1:
                 last_error = RuntimeError(f"HTTP {response.status_code}")
-                time.sleep(min(3 * (2**attempt), 60))
+                time.sleep(retry_delay(response, attempt))
                 continue
             raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
         except requests.RequestException as exc:

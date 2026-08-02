@@ -330,13 +330,21 @@ def test_patch_paths_rejects_executable_or_symlink_new_files(mode):
 def test_reviewer_requires_visible_strict_json_and_xhigh_configuration():
     import json
 
-    from scripts.ai_patch_review import parse_json_reply
+    from scripts.ai_patch_review import parse_json_reply, retry_delay
 
     with pytest.raises(json.JSONDecodeError):
         parse_json_reply("")
     reviewer_source = (Path(__file__).resolve().parents[1] / "scripts" / "ai_patch_review.py").read_text(encoding="utf-8")
     assert '"reasoning_effort": "xhigh"' in reviewer_source
     assert "429, 500, 502, 503, 504, 529" in reviewer_source
+    class Response:
+        status_code = 429
+        headers = {"Retry-After": "17"}
+
+    assert retry_delay(Response(), 0) == 17
+    Response.headers = {}
+    assert retry_delay(Response(), 0) == 60
+    assert retry_delay(Response(), 1) == 120
 
 
 def test_mutable_merge_guard_rejects_replayed_existing_external_command():
