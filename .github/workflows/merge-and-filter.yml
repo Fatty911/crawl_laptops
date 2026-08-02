@@ -3,7 +3,7 @@ name: Merge and Filter
 on:
   workflow_dispatch:
   workflow_run:
-    workflows: ["Crawl ZOL", "Crawl JD"]
+    workflows: ["Crawl ZOL", "Crawl JD", "Crawl PConline"]
     types: [completed]
 
 permissions:
@@ -46,7 +46,7 @@ jobs:
       - name: Download latest complete crawler artifacts
         id: artifacts
         run: |
-          mkdir -p data/raw/zol data/raw/jd
+          mkdir -p data/raw/zol data/raw/jd data/raw/pconline
           echo "skip=false" >> "$GITHUB_OUTPUT"
           set +e
           python scripts/download_latest_crawler_artifact.py \
@@ -65,12 +65,22 @@ jobs:
             --min-records 50 \
             2> >(tee "$RUNNER_TEMP/jd-artifact.err" >&2)
           jd_status=$?
+          python scripts/download_latest_crawler_artifact.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow crawl-pconline.yml \
+            --artifact-prefix pconline-data- \
+            --output data/raw/pconline/latest.json \
+            --min-records 50 \
+            2> >(tee "$RUNNER_TEMP/pconline-artifact.err" >&2)
+          pconline_status=$?
           set -e
 
           if [ "$zol_status" -ne 0 ] &&
              [ "$jd_status" -ne 0 ] &&
+             [ "$pconline_status" -ne 0 ] &&
              grep -Fq "no unexpired artifact" "$RUNNER_TEMP/zol-artifact.err" &&
-             grep -Fq "no unexpired artifact" "$RUNNER_TEMP/jd-artifact.err"; then
+             grep -Fq "no unexpired artifact" "$RUNNER_TEMP/jd-artifact.err" &&
+             grep -Fq "no unexpired artifact" "$RUNNER_TEMP/pconline-artifact.err"; then
             echo "No crawler artifacts are available; skipping merge and publish."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -81,6 +91,9 @@ jobs:
           fi
           if [ "$jd_status" -ne 0 ]; then
             exit "$jd_status"
+          fi
+          if [ "$pconline_status" -ne 0 ]; then
+            exit "$pconline_status"
           fi
 
       - name: Download published baseline
@@ -98,6 +111,7 @@ jobs:
           python scripts/merge_data.py \
             data/raw/zol/latest.json \
             data/raw/jd/latest.json \
+            data/raw/pconline/latest.json \
             --output data/work/candidate.json \
             --rejected-output data/work/rejected.json \
             --min-source-records 50
@@ -120,7 +134,7 @@ jobs:
         if: steps.artifacts.outputs.skip != 'true'
         run: |
           python scripts/analysis/merge_evidence_report.py \
-            --raw data/raw/zol/latest.json data/raw/jd/latest.json \
+            --raw data/raw/zol/latest.json data/raw/jd/latest.json data/raw/pconline/latest.json \
             --merged dist/laptops-latest.json \
             --rejected data/work/rejected.json \
             --output dist/merge-evidence-report.json
@@ -131,7 +145,7 @@ jobs:
           if gh release view data-latest >/dev/null 2>&1; then
             gh release edit data-latest \
               --title "Latest verified laptop data" \
-              --notes "Automated verified dataset from ZOL and JD."
+              --notes "Automated verified dataset from ZOL, JD, and PConline."
           else
             gh release create data-latest \
               --target main \

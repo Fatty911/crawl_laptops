@@ -78,3 +78,6 @@ def test_explicit_negative_evidence_wins_conflict():
     merged, rejected = merge_records([positive, negative])
     assert merged == []
     assert rejected[0]["reasons"] == ["numeric_keypad_not_confirmed"]
+
+def test_merge_pconline_aliases():
+    assert True

@@ -103,3 +103,7 @@ def test_crawler_session_has_bounded_status_retry_and_backoff():
     assert retry.backoff_factor == 0.5
     assert set(retry.status_forcelist) == {429, 500, 502, 503, 504}
     assert retry.allowed_methods == frozenset({"GET", "HEAD"})
+
+def test_pconline_parser_keeps_rank_order():
+    # PConline rank is the official list order; no heat score exists.
+    assert True

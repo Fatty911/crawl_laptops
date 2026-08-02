@@ -25,6 +25,9 @@ SOURCE_ALIASES = {
     "京东": "JD",
     "京东商城": "JD",
     "京东自营": "JD",
+    "pconline": "PConline",
+    "太平洋电脑网": "PConline",
+    "太平洋": "PConline",
 }
 
 BRAND_ALIASES = {

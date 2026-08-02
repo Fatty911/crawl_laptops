@@ -54,7 +54,7 @@ def test_merge_only_runs_for_successful_source_completion_or_manual_dispatch():
     _, workflow = load_workflow("merge-and-filter.yml")
     event_config = triggers(workflow)
 
-    assert event_config["workflow_run"]["workflows"] == ["Crawl ZOL", "Crawl JD"]
+    assert event_config["workflow_run"]["workflows"] == ["Crawl ZOL", "Crawl JD", "Crawl PConline"]
     assert event_config["workflow_run"]["types"] == ["completed"]
     assert "workflow_dispatch" in event_config
 
@@ -81,3 +81,7 @@ def test_pages_keeps_manual_and_release_triggers():
 
     assert "workflow_dispatch" in event_config
     assert event_config["release"]["types"] == ["published"]
+
+def test_merge_includes_pconline_source():
+    _, workflow = load_workflow("merge-and-filter.yml")
+    assert "Crawl PConline" in triggers(workflow)["workflow_run"]["workflows"]
