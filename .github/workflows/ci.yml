@@ -13,6 +13,10 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      TMPDIR: ${{ runner.temp }}
+      TEMP: ${{ runner.temp }}
+      TMP: ${{ runner.temp }}
     steps:
       - name: Checkout
         uses: actions/checkout@main
