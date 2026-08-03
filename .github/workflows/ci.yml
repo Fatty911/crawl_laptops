@@ -13,10 +13,6 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      TMPDIR: ${{ runner.temp }}
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
     steps:
       - name: Checkout
         uses: actions/checkout@main
@@ -30,6 +26,10 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pytest
       - name: Run tests and static checks
+        env:
+          TMPDIR: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: |
           python -m pytest tests/ -q
           python -m compileall -q scripts tests
