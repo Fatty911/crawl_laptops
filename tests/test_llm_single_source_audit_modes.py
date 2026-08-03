@@ -61,3 +61,26 @@ def test_deterministic_fallback_mode_is_available(tmp_path: Path):
     output = tmp_path / "fallback.md"
     module.write_deterministic_fallback(report, output)
     assert "确定性降级报告" in output.read_text(encoding="utf-8")
+
+
+def test_agent_response_must_match_request_manifest(tmp_path: Path):
+    module = _module()
+    manifest_path = tmp_path / "manifest.json"
+    manifest = module.write_request_manifest("stable prompt", manifest_path)
+    response = tmp_path / "agent.md"
+    response.write_text(
+        f"REQUEST_ID: {manifest['request_id']}\n"
+        f"PROMPT_SHA256: {manifest['prompt_sha256']}\n"
+        "# bound result\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "analysis.md"
+    module.consume_agent_response(response, output, manifest_path)
+    assert output.read_text(encoding="utf-8") == "# bound result\n"
+
+    response.write_text(
+        f"REQUEST_ID: {manifest['request_id']}\nPROMPT_SHA256: {'0' * 64}\n# bad\n",
+        encoding="utf-8",
+    )
+    with __import__("pytest").raises(ValueError, match="not bound"):
+        module.consume_agent_response(response, output, manifest_path)

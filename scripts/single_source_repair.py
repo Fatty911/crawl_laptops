@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import unicodedata
 import urllib.error
 import urllib.request
@@ -357,38 +358,43 @@ Pages URL：{pages_url}
 
 
 def _call_nim(prompt: str) -> str:
-    key = os.environ.get("NVIDIA_NIM_API_KEY", "").strip()
-    if not key:
-        raise RepairInputError("NVIDIA_NIM_API_KEY is unavailable")
-    model = os.environ.get("NVIDIA_NIM_MODEL", "deepseek-ai/deepseek-v4-flash")
-    body = json.dumps({
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1,
-        "max_tokens": 4000,
-        "response_format": {"type": "json_object"},
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        "https://integrate.api.nvidia.com/v1/chat/completions",
-        data=body,
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=180) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise RepairInputError(f"NVIDIA NIM request failed: {type(exc).__name__}") from exc
-    try:
-        content = result["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise RepairInputError("NVIDIA NIM response has no message content") from exc
-    if not isinstance(content, str) or not content.strip():
-        raise RepairInputError("NVIDIA NIM returned empty content")
-    return content
+    """Use the shared free-only route; this function never knows Plan credentials."""
+    from scripts import free_first_router
+
+    model = os.environ.get("NVIDIA_NIM_MODEL", "").strip()
+    previous_model_list = os.environ.get("NVIDIA_NIM_MODEL_LIST")
+    previous_json_mode = os.environ.get("FREE_LLM_JSON_MODE")
+    previous_max_tokens = os.environ.get("FREE_LLM_MAX_TOKENS")
+    with tempfile.TemporaryDirectory(prefix="free-first-repair-") as directory:
+        root = Path(directory)
+        output = root / "response.txt"
+        metadata_path = root / "route.json"
+        try:
+            if model:
+                os.environ["NVIDIA_NIM_MODEL_LIST"] = model
+            os.environ["FREE_LLM_JSON_MODE"] = "1"
+            os.environ["FREE_LLM_MAX_TOKENS"] = "4000"
+            free_first_router.route(prompt, output, metadata_path, None)
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if metadata.get("status") != "success" or not output.is_file():
+                status = metadata.get("status", "unknown")
+                raise RepairInputError(f"free model route {status}; no paid Agent is declared for this workflow")
+            return output.read_text(encoding="utf-8")
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RepairInputError(f"free model route failed: {type(exc).__name__}") from exc
+        finally:
+            if previous_model_list is None:
+                os.environ.pop("NVIDIA_NIM_MODEL_LIST", None)
+            else:
+                os.environ["NVIDIA_NIM_MODEL_LIST"] = previous_model_list
+            if previous_json_mode is None:
+                os.environ.pop("FREE_LLM_JSON_MODE", None)
+            else:
+                os.environ["FREE_LLM_JSON_MODE"] = previous_json_mode
+            if previous_max_tokens is None:
+                os.environ.pop("FREE_LLM_MAX_TOKENS", None)
+            else:
+                os.environ["FREE_LLM_MAX_TOKENS"] = previous_max_tokens
 
 
 def _strict_json_load(text: str, label: str) -> Any:
@@ -433,6 +439,46 @@ def _json_response(text: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RepairInputError("model response JSON is not an object")
     return value
+
+
+def _write_request_manifest(prompt: str, output: Path) -> dict[str, str]:
+    prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    manifest = {
+        "version": "single-source-repair-v1",
+        "request_id": prompt_sha256[:16],
+        "prompt_sha256": prompt_sha256,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(_json(manifest) + "\n", encoding="utf-8")
+    return manifest
+
+
+def _load_response_input(input_path: Path, manifest_path: Path | None = None) -> str:
+    raw = input_path.read_bytes()
+    if not raw or len(raw) > 512 * 1024:
+        raise RepairInputError("Agent response is empty or exceeds the size limit")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RepairInputError("Agent response is not UTF-8") from exc
+    if not text.strip():
+        raise RepairInputError("Agent response is empty")
+    if manifest_path is None:
+        return text
+    manifest = _strict_json_load(manifest_path.read_text(encoding="utf-8"), "request manifest")
+    request_id = str(manifest.get("request_id") or "").strip()
+    prompt_sha256 = str(manifest.get("prompt_sha256") or "").strip()
+    if not request_id or len(prompt_sha256) != 64:
+        raise RepairInputError("request manifest is incomplete")
+    envelope = _strict_json_load(text, "bound Agent response")
+    if not isinstance(envelope, dict):
+        raise RepairInputError("bound Agent response must be an object")
+    if envelope.get("request_id") != request_id or envelope.get("prompt_sha256") != prompt_sha256:
+        raise RepairInputError("Agent response is not bound to the request manifest")
+    proposal = envelope.get("proposal")
+    if not isinstance(proposal, dict):
+        raise RepairInputError("bound Agent response is missing proposal object")
+    return _json(proposal)
 
 
 def _normalize_patch(patch: str) -> str:
@@ -647,7 +693,36 @@ def propose(args: argparse.Namespace) -> int:
             return 0
 
         prompt = _build_prompt(report, args.repo_kind, args.base_sha, args.pages_url)
-        response = _json_response(_call_nim(prompt))
+        prompt_output = getattr(args, "prompt_output", "")
+        if prompt_output:
+            prompt_path = Path(prompt_output)
+            prompt_path.parent.mkdir(parents=True, exist_ok=True)
+            prompt_path.write_text(prompt, encoding="utf-8")
+            manifest_output = getattr(args, "manifest_output", "")
+            if manifest_output:
+                _write_request_manifest(prompt, Path(manifest_output))
+            result.update(status="prompt-prepared", reason="deterministic Agent prompt prepared")
+            _write_result(output_dir, result)
+            return 0
+
+        if getattr(args, "deterministic_only", False):
+            result.update(
+                status="analysis-only",
+                reason="free endpoints did not succeed and the Plan Agent was unavailable",
+            )
+            _write_result(output_dir, result)
+            return 0
+
+        response_input = getattr(args, "agent_response_input", "")
+        request_manifest = getattr(args, "request_manifest", "")
+        if response_input:
+            response_text = _load_response_input(
+                Path(response_input),
+                Path(request_manifest) if request_manifest else None,
+            )
+        else:
+            response_text = _call_nim(prompt)
+        response = _json_response(response_text)
         required_fields = {"should_fix", "confidence", "root_cause", "evidence", "analysis", "patch"}
         if not required_fields.issubset(response):
             raise RepairInputError("model response is missing required fields")
@@ -718,9 +793,16 @@ def main() -> int:
     parser.add_argument("--pages-url", default="")
     parser.add_argument("--chain-id", default="")
     parser.add_argument("--round", type=int, default=0)
+    parser.add_argument("--prompt-output", help="prepare a deterministic prompt and do not call a model")
+    parser.add_argument("--manifest-output", help="write the prompt request manifest")
+    parser.add_argument("--agent-response-input", help="consume a free or Agent response from a file")
+    parser.add_argument("--request-manifest", help="require the Agent response to match this manifest")
+    parser.add_argument("--deterministic-only", action="store_true")
     parser.add_argument("--check-patch", help="validate a patch and exit without applying it")
     parser.add_argument("--validate-working-tree", action="store_true")
     args = parser.parse_args()
+    if args.prompt_output and args.agent_response_input:
+        parser.error("--prompt-output and --agent-response-input are mutually exclusive")
 
     if args.check_patch:
         patch = Path(args.check_patch).read_text(encoding="utf-8")

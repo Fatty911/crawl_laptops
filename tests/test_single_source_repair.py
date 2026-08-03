@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from scripts.single_source_repair import (
     ALLOWED_FILES,
     RepairInputError,
     _json_response,
+    _load_response_input,
     _strict_json_load,
+    _write_request_manifest,
     analyze_payload,
     validate_patch_text,
 )
@@ -102,6 +107,37 @@ class SingleSourceRepairTests(unittest.TestCase):
         with self.assertRaises(RepairInputError):
             validate_patch_text(patch, "phones")
         self.assertTrue(ALLOWED_FILES["phones"])
+
+    def test_plan_response_requires_immutable_request_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path = root / "manifest.json"
+            manifest = _write_request_manifest("stable prompt", manifest_path)
+            response_path = root / "response.json"
+            response_path.write_text(
+                json.dumps(
+                    {
+                        "request_id": manifest["request_id"],
+                        "prompt_sha256": manifest["prompt_sha256"],
+                        "proposal": {"should_fix": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            bound = _load_response_input(response_path, manifest_path)
+            self.assertEqual({"should_fix": False}, json.loads(bound))
+            response_path.write_text(
+                json.dumps(
+                    {
+                        "request_id": "wrong",
+                        "prompt_sha256": manifest["prompt_sha256"],
+                        "proposal": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(RepairInputError):
+                _load_response_input(response_path, manifest_path)
 
 
 if __name__ == "__main__":

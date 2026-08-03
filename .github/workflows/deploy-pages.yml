@@ -159,57 +159,88 @@ jobs:
             --data ./data/latest.json \
             --report ./audit_report.json \
             --output ./llm_analysis.md \
-            --prompt-output ./llm_agent_prompt.md
+            --prompt-output ./llm_agent_prompt.md \
+            --manifest-output ./llm_agent_manifest.json
+
+      - name: Run configured free endpoints first
+        id: free_route
+        if: steps.audit_prompt.outcome == 'success'
+        continue-on-error: true
+        env:
+          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ZEN_API_KEY: ${{ secrets.ZEN_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          MODAL_API_KEY: ${{ secrets.MODAL_API_KEY }}
+          MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
+          ATOMGIT_API_KEY: ${{ secrets.ATOMGIT_API_KEY }}
+        run: |
+          set -euo pipefail
+          python3 scripts/free_first_router.py \
+            --prompt-file ./llm_agent_prompt.md \
+            --output ./free_agent_analysis.md \
+            --metadata-output ./ai_route.json \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Set up Node.js for OpenCode Agent
-        if: steps.audit_prompt.outcome == 'success'
+        if: steps.audit_prompt.outcome == 'success' && steps.free_route.outputs.paid_required == 'true'
         continue-on-error: true
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
       - name: Install fixed OpenCode CLI
-        if: steps.audit_prompt.outcome == 'success'
+        if: steps.audit_prompt.outcome == 'success' && steps.free_route.outputs.paid_required == 'true'
         continue-on-error: true
         run: npm install --global opencode-ai@1.18.11
 
       - name: Prepare isolated OpenCode directory
-        if: steps.audit_prompt.outcome == 'success'
+        if: steps.audit_prompt.outcome == 'success' && steps.free_route.outputs.paid_required == 'true'
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/opencode-agent"
           cp "$GITHUB_WORKSPACE/llm_agent_prompt.md" "$RUNNER_TEMP/opencode-agent/prompt.md"
+          echo "PLAN_REQUEST_ID=$(jq -r .request_id "$GITHUB_WORKSPACE/llm_agent_manifest.json")" >> "$GITHUB_ENV"
+          echo "PLAN_PROMPT_SHA256=$(jq -r .prompt_sha256 "$GITHUB_WORKSPACE/llm_agent_manifest.json")" >> "$GITHUB_ENV"
 
       - name: Run Kimi Coding Plan through read-only OpenCode Agent
         id: kimi_agent
-        if: steps.audit_prompt.outcome == 'success'
+        if: steps.audit_prompt.outcome == 'success' && steps.free_route.outputs.paid_required == 'true'
         continue-on-error: true
         env:
           KIMI_CODINGPLAN_API_KEY: ${{ secrets.KIMI_CODINGPLAN_API_KEY }}
           OPENCODE_CONFIG_CONTENT: >-
             {"autoupdate":false,"provider":{"kimi-coding-plan":{"npm":"@ai-sdk/openai-compatible","name":"Kimi Coding Plan","options":{"baseURL":"https://api.kimi.com/coding/v1","apiKey":"{env:KIMI_CODINGPLAN_API_KEY}"},"models":{"kimi-k2.6":{"limit":{"context":262144,"output":32768}}}}},"agent":{"plan":{"model":"kimi-coding-plan/kimi-k2.6","permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}},"permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}
-        run: opencode run --pure --agent plan --model kimi-coding-plan/kimi-k2.6 --format default --dir "$RUNNER_TEMP/opencode-agent" --file prompt.md "Use the attached deterministic audit prompt. Return only the requested analysis, and do not call tools or modify files." > ./llm_agent_analysis.md
+        run: >-
+          opencode run --pure --agent plan --model kimi-coding-plan/kimi-k2.6 --format default --dir "$RUNNER_TEMP/opencode-agent" --file prompt.md "Return only the requested analysis. The response must contain exactly one plain line REQUEST_ID: $PLAN_REQUEST_ID and exactly one plain line PROMPT_SHA256: $PLAN_PROMPT_SHA256, then the analysis. Do not call tools or modify files." > ./llm_agent_analysis.md
 
       - name: Finalize audit analysis without passing Plan key to Python
         if: always()
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
-          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
-          ZEN_API_KEY: ${{ secrets.ZEN_API_KEY }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
         run: |
-          if [[ "${{ steps.kimi_agent.outcome }}" == "success" && -s ./llm_agent_analysis.md ]]; then
+          if [[ "${{ steps.free_route.outputs.free_status }}" == "success" && -s ./free_agent_analysis.md ]]; then
             if ! python3 scripts/llm_single_source_audit.py \
               --data ./data/latest.json \
               --report ./audit_report.json \
               --output ./llm_analysis.md \
-              --agent-response-input ./llm_agent_analysis.md; then
+              --agent-response-input ./free_agent_analysis.md; then
+              python3 scripts/llm_single_source_audit.py \
+                --data ./data/latest.json \
+                --report ./audit_report.json \
+                --output ./llm_analysis.md \
+                --fallback-only
+            fi
+          elif [[ "${{ steps.free_route.outputs.paid_required }}" == "true" &&
+                  "${{ steps.kimi_agent.outcome }}" == "success" &&
+                  -s ./llm_agent_analysis.md ]]; then
+            if ! python3 scripts/llm_single_source_audit.py \
+              --data ./data/latest.json \
+              --report ./audit_report.json \
+              --output ./llm_analysis.md \
+              --agent-response-input ./llm_agent_analysis.md \
+              --request-manifest ./llm_agent_manifest.json; then
               python3 scripts/llm_single_source_audit.py \
                 --data ./data/latest.json \
                 --report ./audit_report.json \
@@ -220,7 +251,8 @@ jobs:
             python3 scripts/llm_single_source_audit.py \
               --data ./data/latest.json \
               --report ./audit_report.json \
-              --output ./llm_analysis.md
+              --output ./llm_analysis.md \
+              --fallback-only
           fi
           echo "=== LLM Analysis ==="
           head -80 ./llm_analysis.md || true
