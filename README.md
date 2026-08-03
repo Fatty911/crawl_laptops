@@ -37,6 +37,8 @@ ZOL 热度榜 ──► zol-data-YYYYMMDD ─┐
 
 每个 crawler artifact 少于 50 行会立即失败。合并采用稳定身份键，`atomic_source_names` 将“中关村在线/ZOL”和“京东/JD”等别名归一为原子来源。上次已发布且仍满足规则的机型会被保留，superset 校验会阻止意外丢数，审计还会拦截来源整体回归。
 
+工作流还由 `scripts/validate_storage_policy.py` 做 fail-closed 护栏：运行时 `data/` 不得被 Git 跟踪，artifact 必须使用已登记前缀和短 retention；`single-source-repair.yml` 只能暂存五个受限脚本。`.github/workflows/ci.yml` 在 PR 和 main push 上执行测试、编译、存储策略和补丁空白校验。
+
 ## 仓库结构
 
 - `scripts/crawl_zol.py`：ZOL 热度榜和产品参数页。
