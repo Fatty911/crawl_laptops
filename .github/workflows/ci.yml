@@ -34,6 +34,7 @@ jobs:
           python -m pytest tests/ -q
           python -m compileall -q scripts tests
           python scripts/validate_storage_policy.py
+          python scripts/validate_plan_agent_boundary.py
       - name: Check patch whitespace
         env:
           EVENT_NAME: ${{ github.event_name }}

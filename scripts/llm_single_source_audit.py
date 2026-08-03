@@ -24,6 +24,9 @@ import urllib.request
 from pathlib import Path
 
 
+MAX_AGENT_RESPONSE_BYTES = 512 * 1024
+
+
 # AA 50+ models ranked by Intelligence Index, with API config
 AA_MODELS = [
     {
@@ -59,7 +62,7 @@ AA_MODELS = [
         "provider": "kimi",
         "model": "k3",
         "max_tokens": 12000,
-        "env_keys": ["KIMI_API_KEY", "MOONSHOT_API_KEY", "KIMI_CODINGPLAN_API_KEY"],
+        "env_keys": ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
         "endpoint": "https://api.moonshot.cn/v1/chat/completions",
     },
     {
@@ -215,41 +218,7 @@ def call_anthropic(model: dict, prompt: str) -> str | None:
         return None
 
 
-def main():
-    parser = argparse.ArgumentParser(description="LLM single-source audit")
-    parser.add_argument("--data", required=True, help="Path to latest.json")
-    parser.add_argument("--report", required=True, help="Path to audit report JSON")
-    parser.add_argument("--output", required=True, help="Output markdown path")
-    args = parser.parse_args()
-
-    report = json.loads(Path(args.report).read_text(encoding="utf-8"))
-    data = json.loads(Path(args.data).read_text(encoding="utf-8"))
-    if isinstance(data, dict) and "items" in data:
-        rows = data["items"]
-    elif isinstance(data, dict) and "data" in data:
-        rows = data["data"]
-    elif isinstance(data, list):
-        rows = data
-    else:
-        rows = []
-
-    prompt = build_prompt(report, rows[:50])
-
-    print("Trying AA 50+ models in order of Intelligence Index...")
-    for model in AA_MODELS:
-        print(f"  Trying {model['name']} (AA {model['aa_index']})...")
-        if model["provider"] == "anthropic":
-            result = call_anthropic(model, prompt)
-        else:
-            result = call_openai_compatible(model, prompt)
-        if result:
-            Path(args.output).write_text(result, encoding="utf-8")
-            print(f"Analysis from {model['name']} written to {args.output}")
-            return
-        else:
-            print(f"  {model['name']} unavailable, trying next...")
-
-    # No LLM available - write deterministic analysis
+def write_deterministic_fallback(report: dict, output: Path) -> None:
     fallback = f"""# 单源数据根因分析（确定性降级报告）
 
 > 未配额AA 50+大模型API，以下为确定性分析。
@@ -269,8 +238,82 @@ def main():
 ## Top 单源系列
 {json.dumps(report.get('detail', {}).get('top_single_series', report.get('detail', {}).get('top_single_products', []))[:20], ensure_ascii=False, indent=2)}
 """
-    Path(args.output).write_text(fallback, encoding="utf-8")
-    print(f"No LLM available - deterministic fallback written to {args.output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(fallback, encoding="utf-8")
+
+
+def consume_agent_response(input_path: Path, output: Path) -> None:
+    raw = input_path.read_bytes()
+    if not raw or len(raw) > MAX_AGENT_RESPONSE_BYTES:
+        raise ValueError("Agent response is empty or exceeds the size limit")
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("Agent response is not UTF-8") from exc
+    if not content.strip():
+        raise ValueError("Agent response is empty")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(content, encoding="utf-8")
+
+
+def _load_inputs(args: argparse.Namespace) -> tuple[dict, list[dict], str]:
+    report = json.loads(Path(args.report).read_text(encoding="utf-8"))
+    data = json.loads(Path(args.data).read_text(encoding="utf-8"))
+    if isinstance(data, dict) and "items" in data:
+        rows = data["items"]
+    elif isinstance(data, dict) and "data" in data:
+        rows = data["data"]
+    elif isinstance(data, list):
+        rows = data
+    else:
+        rows = []
+    return report, rows, build_prompt(report, rows[:50])
+
+
+def main():
+    parser = argparse.ArgumentParser(description="LLM single-source audit")
+    parser.add_argument("--data", required=True, help="Path to latest.json")
+    parser.add_argument("--report", required=True, help="Path to audit report JSON")
+    parser.add_argument("--output", required=True, help="Output markdown path")
+    parser.add_argument("--prompt-output", help="Write a prompt for the external read-only Agent and exit")
+    parser.add_argument("--agent-response-input", help="Validate and consume a response from the external Agent")
+    parser.add_argument("--fallback-only", action="store_true", help="Write only the deterministic report and never call a model")
+    args = parser.parse_args()
+
+    modes = sum(bool(value) for value in (args.prompt_output, args.agent_response_input)) + int(args.fallback_only)
+    if modes > 1:
+        parser.error("--prompt-output, --agent-response-input and --fallback-only are mutually exclusive")
+    report, rows, prompt = _load_inputs(args)
+    if args.prompt_output:
+        prompt_path = Path(args.prompt_output)
+        prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt_path.write_text(prompt, encoding="utf-8")
+        print(f"Agent prompt written to {prompt_path}")
+        return
+    if args.agent_response_input:
+        consume_agent_response(Path(args.agent_response_input), Path(args.output))
+        print(f"Agent analysis written to {args.output}")
+        return
+    if args.fallback_only:
+        write_deterministic_fallback(report, Path(args.output))
+        print(f"Deterministic fallback written to {args.output}")
+        return
+
+    print("Trying non-Plan AA 50+ models in order of Intelligence Index...")
+    for model in AA_MODELS:
+        print(f"  Trying {model['name']} (AA {model['aa_index']})...")
+        if model["provider"] == "anthropic":
+            result = call_anthropic(model, prompt)
+        else:
+            result = call_openai_compatible(model, prompt)
+        if result:
+            Path(args.output).write_text(result, encoding="utf-8")
+            print(f"Analysis from {model['name']} written to {args.output}")
+            return
+        print(f"  {model['name']} unavailable, trying next...")
+
+    write_deterministic_fallback(report, Path(args.output))
+    print(f"No non-Plan model available - deterministic fallback written to {args.output}")
 
 
 if __name__ == "__main__":
