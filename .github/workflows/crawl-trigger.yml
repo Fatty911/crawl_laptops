@@ -1,0 +1,100 @@
+# 爬虫外部触发器 - 通过 repository_dispatch 触发实际爬虫
+# 使用 cron-job.org 或外部定时服务调用此 workflow
+# 北京时间 08:00-12:30（morning）或 13:00-22:00（afternoon）窗口内才触发
+name: 爬虫外部触发器
+
+on:
+  # 由外部定时服务（如 cron-job.org）通过 API 触发
+  repository_dispatch:
+    types: [trigger-crawl]
+  # 也可手动触发测试
+  workflow_dispatch:
+    inputs:
+      crawler_type:
+        description: '爬虫类型'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - zol
+          - jd
+          - pconline
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MORNING_RUN_TIME: 7200
+      AFTERNOON_RUN_TIME: 10800
+      WINDOW_END_BUFFER_SECONDS: 900
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Select Beijing-time crawl window
+        id: window
+        run: python scripts/crawl_budget.py configure
+
+      - name: Trigger source crawlers
+        if: steps.window.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ACTION_PAT || github.token }}
+        run: |
+          CRAWLER="${{ github.event.client_payload.crawler || inputs.crawler_type || 'all' }}"
+          RUN_PROFILE="${{ steps.window.outputs.run_profile != '' && steps.window.outputs.run_profile || 'morning' }}"
+          RUN_PROFILE="$(grep '^RUN_PROFILE=' "$GITHUB_ENV" 2>/dev/null | tail -1 | cut -d= -f2)"
+          RUN_PROFILE="${RUN_PROFILE:-morning}"
+          TRIGGER_TIME="$(date +%s)"
+          echo "触发爬虫: $CRAWLER, 窗口: $RUN_PROFILE, trigger_time=$TRIGGER_TIME"
+
+          trigger_workflow() {
+            local workflow="$1"
+            local with_inputs="$2"
+            echo "触发 $workflow..."
+            if [ "$with_inputs" = "yes" ]; then
+              gh workflow run "$workflow" \
+                --repo "$GITHUB_REPOSITORY" \
+                -f run_profile="$RUN_PROFILE"
+            else
+              # Crawl PConline 的 workflow_dispatch 不接受受控输入，裸触发
+              gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY"
+            fi
+          }
+
+          case "$CRAWLER" in
+            all)
+              trigger_workflow "crawl-zol.yml" yes
+              trigger_workflow "crawl-jd.yml" yes
+              trigger_workflow "crawl-pconline.yml" no
+              ;;
+            zol)
+              trigger_workflow "crawl-zol.yml" yes
+              ;;
+            jd)
+              trigger_workflow "crawl-jd.yml" yes
+              ;;
+            pconline)
+              trigger_workflow "crawl-pconline.yml" no
+              ;;
+            *)
+              echo "未知爬虫类型: $CRAWLER"
+              exit 1
+              ;;
+          esac
