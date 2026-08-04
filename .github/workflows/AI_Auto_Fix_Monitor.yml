@@ -99,7 +99,7 @@ jobs:
           --max-tokens 4000
 
       - name: File or update diagnosis issue
-        if: steps.classify.outputs.should_diagnose == 'true' || steps.classify.outputs.classification != ''
+        if: steps.classify.outputs.should_diagnose == 'true'
         run: |
           CLASSIFICATION="${{ steps.classify.outputs.classification }}"
           REASON="${{ steps.classify.outputs.reason }}"
@@ -126,16 +126,48 @@ jobs:
             echo "免费端点未能完成诊断（状态: ${{ steps.free_route.outputs.free_status }}）；请人工检查上述 run 日志。" >> "$BODY_FILE"
           fi
 
-          EXISTING=$(gh issue list --label "crawl-failure-diagnosis" --state open --json number,title \
-            --jq "[.[] | select(.title | contains(\"${WORKFLOW_NAME}\"))] | .[0].number // empty")
+          # Ensure the label exists; an existing label makes this idempotent.
+          # If repository metadata creation is unavailable, issue creation below
+          # falls back to an unlabelled issue instead of losing the diagnosis.
+          gh label create crawl-failure-diagnosis \
+            --description "AI auto-diagnosed crawl failure" \
+            --color E5502B >/dev/null 2>&1 || true
+
+          # Use REST here instead of gh issue list's GraphQL query.  A transient
+          # GraphQL error must not discard an otherwise valid crawl diagnosis.
+          EXISTING=""
+          if gh api "repos/${GITHUB_REPOSITORY}/issues?state=open&labels=crawl-failure-diagnosis&per_page=100" \
+              --jq '.[] | select(.pull_request == null) | [.number, .title] | @tsv' \
+              > open_diagnosis_issues.tsv; then
+            EXISTING=$(WORKFLOW_NAME="$WORKFLOW_NAME" python - <<'PY'
+          import os
+          from pathlib import Path
+
+          needle = os.environ["WORKFLOW_NAME"]
+          for line in Path("open_diagnosis_issues.tsv").read_text(encoding="utf-8").splitlines():
+              number, _, title = line.partition("\t")
+              if needle in title:
+                  print(number)
+                  break
+          PY
+          )
+          else
+            echo "无法读取现有诊断 issue，直接创建新 issue"
+          fi
+
           if [ -n "$EXISTING" ]; then
             echo "更新已有诊断 issue #${EXISTING}"
             gh issue comment "$EXISTING" --body-file "$BODY_FILE"
           else
-            gh issue create \
-              --title "$TITLE" \
-              --body-file "$BODY_FILE" \
-              --label "crawl-failure-diagnosis"
+            if ! gh issue create \
+                --title "$TITLE" \
+                --body-file "$BODY_FILE" \
+                --label "crawl-failure-diagnosis"; then
+              echo "带标签创建失败，回退为无标签诊断 issue"
+              gh issue create \
+                --title "$TITLE" \
+                --body-file "$BODY_FILE"
+            fi
           fi
 
       - name: Report monitor result

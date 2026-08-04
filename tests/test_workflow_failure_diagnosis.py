@@ -1,5 +1,7 @@
 """Failure classification for the AI auto-fix monitor."""
 
+from pathlib import Path
+
 from scripts.workflow_failure_diagnosis import build_prompt, classify_run
 
 
@@ -50,3 +52,11 @@ def test_prompt_contains_repo_context_and_log_excerpt():
     assert "Run ID: 12345" in prompt
     assert "detail_risk_verification" in prompt
     assert "发布门禁不可绕过" in prompt
+
+
+
+def test_monitor_only_files_actionable_diagnoses():
+    workflow = (Path(__file__).parents[1] / ".github" / "workflows" / "AI_Auto_Fix_Monitor.yml").read_text(encoding="utf-8")
+    assert "if: steps.classify.outputs.should_diagnose == 'true'" in workflow
+    assert "|| steps.classify.outputs.classification != ''" not in workflow
+    assert 'repos/${GITHUB_REPOSITORY}/issues?state=open&labels=crawl-failure-diagnosis' in workflow
