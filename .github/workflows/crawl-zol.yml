@@ -2,6 +2,23 @@ name: Crawl ZOL
 
 on:
   workflow_dispatch:
+    inputs:
+      force_restart:
+        description: '强制重新开始（清除增量进度）'
+        required: false
+        default: 'false'
+      run_profile:
+        description: '运行时长配置：auto/morning/afternoon'
+        required: false
+        default: 'auto'
+      max_items:
+        description: '最多爬取条数（调试用，0=不限制）'
+        required: false
+        default: '0'
+      debug_mode:
+        description: '调试模式（忽略时间窗口）'
+        required: false
+        default: 'false'
   schedule:
     # Scheduled workflows run from the default branch (main).
     # 03:17 UTC = 11:17 Asia/Shanghai (UTC+8), Monday weekly crawl.
@@ -10,31 +27,73 @@ on:
     - cron: "23 5 * * *"
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 concurrency:
   group: crawl-source
   cancel-in-progress: false
 
+env:
+  RUN_TIME: 7200
+  MORNING_RUN_TIME: 7200
+  AFTERNOON_RUN_TIME: 10800
+  MAX_WORKFLOW_SECONDS: 10800
+  PROGRESS_COMMIT_BUFFER_SECONDS: 1800
+  WINDOW_END_BUFFER_SECONDS: 900
+  MAX_PAGES: 0
+  CRAWL_MIN_DELAY_SECONDS: 8
+  CRAWL_MAX_DELAY_SECONDS: 20
+
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 240
     steps:
       - name: Checkout
         uses: actions/checkout@main
+        with:
+          token: ${{ secrets.ACTION_PAT || github.token }}
+
+      - name: Prepare crawl state
+        run: |
+          mkdir -p crawl_state/zol
+          echo "WORKFLOW_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+          if [ "${{ github.event.inputs.force_restart }}" = "true" ]; then
+            rm -f crawl_state/zol/progress.json crawl_state/zol/items.jsonl crawl_state/zol/enriched.jsonl
+            echo "强制重启，重置增量爬取进度"
+          fi
+
+      - name: Configure crawl window
+        id: window
+        env:
+          PROFILE_INPUT: ${{ github.event.inputs.run_profile || 'auto' }}
+        run: |
+          if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
+            echo "调试模式：跳过时间窗口检查"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            DEBUG_LIMIT="${{ github.event.inputs.max_items }}"
+            if [ "$DEBUG_LIMIT" = "0" ]; then DEBUG_LIMIT=30; fi
+            echo "MAX_ITEMS=$DEBUG_LIMIT" >> "$GITHUB_ENV"
+            echo "RUN_TIME=1800" >> "$GITHUB_ENV"
+          else
+            python scripts/crawl_budget.py configure
+            echo "MAX_ITEMS=${{ github.event.inputs.max_items || '0' }}" >> "$GITHUB_ENV"
+          fi
 
       - name: Set up Python
+        if: steps.window.outputs.skip != 'true'
         uses: actions/setup-python@main
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Install dependencies
+        if: steps.window.outputs.skip != 'true'
         run: python -m pip install -r requirements.txt
 
       - name: Configure required crawler proxy
+        if: steps.window.outputs.skip != 'true'
         env:
           PROXY_SUBSCRIPTIONS: ${{ secrets.PROXY_SUBSCRIPTIONS }}
         run: >-
@@ -43,23 +102,61 @@ jobs:
           --test-url
           https://detail.zol.com.cn/notebook_index/subcate16_0_list_1_0_1_2_0_1.html
 
+      - name: Clamp step1 runtime to workflow budget
+        if: steps.window.outputs.skip != 'true'
+        run: python scripts/crawl_budget.py clamp --step-label step1 --skip-env STEP1_SKIP
+
       - name: Crawl popularity ranking
-        run: >-
-          python scripts/crawl_zol.py
-          --output data/raw/zol/latest.json
-          --pages 3
-          --max-items 120
-          --min-records 50
+        id: step1
+        if: steps.window.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ACTION_PAT || github.token }}
+        run: |
+          if [ "${STEP1_SKIP:-false}" = "true" ]; then
+            echo "step1 已因剩余安全时间不足跳过"
+            echo "complete=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          python scripts/crawl_zol.py \
+            --output data/raw/zol/latest.json \
+            --progress-dir crawl_state/zol \
+            --time-limit "$RUN_TIME" \
+            --max-pages "$MAX_PAGES" \
+            --max-items "$MAX_ITEMS" \
+            --min-records 50
+          EXIT_CODE=$?
+          set -e
+          echo "ZOL crawl exit code: $EXIT_CODE"
+          git config user.name "github-actions[bot]"
+          git config user.email "xuerui911@gmail.com"
+          if [ $EXIT_CODE -eq 10 ]; then
+            echo "本次运行未完成，提交爬取进度，下次续跑"
+            git add crawl_state/zol/
+            git diff --cached --quiet || git commit -m "chore: update ZOL crawl progress [skip ci]"
+            bash scripts/git_sync_progress.sh "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            echo "complete=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "complete=false" >> "$GITHUB_OUTPUT"
+            exit $EXIT_CODE
+          fi
+          git add crawl_state/zol/
+          git diff --cached --quiet || git commit -m "chore: complete ZOL crawl cycle [skip ci]"
+          bash scripts/git_sync_progress.sh "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          echo "complete=true" >> "$GITHUB_OUTPUT"
 
       - name: Clear crawler proxy environment
         if: always()
         run: python scripts/setup_proxy_runtime.py --clear
 
       - name: Set artifact date
+        if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
         id: date
         run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
       - name: Upload crawler data
+        if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
         uses: actions/upload-artifact@main
         with:
           name: zol-data-${{ steps.date.outputs.date }}
