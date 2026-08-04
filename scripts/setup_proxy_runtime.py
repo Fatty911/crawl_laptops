@@ -45,6 +45,41 @@ PROXY_ENV_DISABLED = {
 }
 
 
+CREDENTIAL_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9+/=_\-]{24,}")
+URL_CREDENTIAL_PATTERN = re.compile(r"(://)[^/@\s]+@")
+
+
+def redact_log_content(raw: str) -> str:
+    """Strip credential-looking material before echoing mihomo log excerpts.
+
+    mihomo logs can embed subscription URLs and node credentials; the proxy
+    secret must never reach the workflow log.  URL userinfo and any long
+    high-entropy token are masked, which keeps diagnostics useful without
+    leaking secrets.
+    """
+
+    text = URL_CREDENTIAL_PATTERN.sub(r"\1***@", raw)
+    return CREDENTIAL_TOKEN_PATTERN.sub("***", text)
+
+
+def tail_log_for_diagnostics(log_path: Path, limit: int = 3000) -> None:
+    """Print the redacted tail of the mihomo log for failure triage.
+
+    Ported from the crawl_cars proxy setup (last 3000 characters), with
+    credential redaction so the fail-closed security contract is preserved.
+    """
+
+    try:
+        content = log_path.read_text(errors="replace")
+    except OSError:
+        return
+    excerpt = content[-limit:]
+    if not excerpt.strip():
+        return
+    print(f"=== mihomo log tail (redacted, last {limit} characters) ===")
+    print(redact_log_content(excerpt))
+
+
 def append_github_env(path: str, values: dict[str, str]) -> None:
     if not path:
         return
@@ -158,7 +193,7 @@ def download_mihomo(bin_dir: Path) -> Path | None:
         print(f"mihomo ready: {target}")
         return target
     except Exception as exc:
-        print(f"mihomo download failed: {type(exc).__name__}")
+        print(f"mihomo download failed: {type(exc).__name__}: {exc}")
         return None
 
 
@@ -268,6 +303,7 @@ def unavailable(github_env: str, reason: str, required: bool) -> int:
 
 def stop_and_report(process: subprocess.Popen[bytes], log_path: Path) -> None:
     process.terminate()
+    tail_log_for_diagnostics(log_path)
     print(f"mihomo stopped after proxy validation failure; log retained at {log_path}")
 
 
