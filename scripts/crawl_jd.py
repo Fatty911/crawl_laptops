@@ -473,7 +473,12 @@ def crawl_incremental(
             record["crawl_warning"] = f"detail_failed:{type(exc).__name__}"
         record["fetched_at"] = utc_now()
         enriched[key] = record
-        if key not in progress.processed_ids:
+        if record.get("crawl_warning"):
+            # Risk-verified or failed detail pages stay retryable: the record
+            # is kept (title-derived fields can still merge cross-source),
+            # but it is not marked processed, so the next run re-attempts it.
+            pass
+        elif key not in progress.processed_ids:
             progress.processed_ids.append(key)
         progress.save(state_dir)
         rewrite_jsonl(enriched_path, list(enriched.values()))

@@ -393,7 +393,8 @@ def crawl_incremental(
             record["crawl_warning"] = f"detail_failed:{type(exc).__name__}"
         record["fetched_at"] = utc_now()
         enriched[key] = record
-        if key not in progress.processed_ids:
+        if not record.get("crawl_warning") and key not in progress.processed_ids:
+            # Failed detail fetches stay retryable on the next run.
             progress.processed_ids.append(key)
         progress.save(state_dir)
         rewrite_jsonl(enriched_path, list(enriched.values()))

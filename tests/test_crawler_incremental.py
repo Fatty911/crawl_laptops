@@ -169,5 +169,7 @@ def test_jd_incremental_detail_risk_breaks_enrichment_loop(tmp_path, monkeypatch
 
     assert exit_code == 10
     progress = Progress.load(progress_dir)
-    # Only the first item was attempted before the risk breaker fired.
-    assert len(progress.processed_ids) == 1
+    # Only the first item was attempted before the risk breaker fired, and
+    # risk-verified items stay retryable: they never enter processed_ids.
+    assert len(progress.processed_ids) == 0
+    assert progress.total_items == 2
