@@ -11,3 +11,8 @@ dist/
 release/
 docs/data/
 
+# monitor runtime artifacts
+scripts/.monitor_count
+scripts/monitor.log
+scripts/monitor_*.log
+crawl_state/
