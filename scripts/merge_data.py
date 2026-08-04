@@ -46,6 +46,18 @@ BRAND_ALIASES = {
     "apple": "苹果",
 }
 
+# JD marketing titles prepend a vendor sub-brand (OMEN/ROG/iGame/来酷) that
+# catalog sources omit.  Stripping a leading sub-brand token lets a JD row
+# join the same model family as ZOL/PConline without touching the identity
+# key's CPU/brand components.  Mappings are brand-scoped so unrelated tokens
+# are never stripped.
+JD_SUBBRAND_TOKENS = {
+    "惠普": ("omen",),
+    "华硕": ("rog", "玩家国度"),
+    "联想": ("来酷",),
+    "七彩虹": ("igame",),
+}
+
 LOW_POWER_SUFFIXES = ("UL", "UP", "G1", "G4", "G7", "U", "Y")
 PERFORMANCE_SUFFIXES = ("HX", "HS", "HK", "H")
 PORTABLE_CATEGORY_PATTERN = re.compile(
@@ -220,6 +232,11 @@ def canonical_model_family(record: dict[str, Any]) -> str:
         prefix = _identity_text(label)
         if prefix and family.startswith(prefix):
             family = family[len(prefix):]
+            break
+    for token in JD_SUBBRAND_TOKENS.get(canonical_brand, ()):
+        token_text = _identity_text(token)
+        if token_text and family.startswith(token_text):
+            family = family[len(token_text):]
             break
     return family or _identity_text(text)
 
