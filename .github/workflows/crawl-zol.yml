@@ -132,7 +132,7 @@ jobs:
           git config user.email "xuerui911@gmail.com"
           if [ $EXIT_CODE -eq 10 ]; then
             echo "本次运行未完成，提交爬取进度，下次续跑"
-            git add crawl_state/zol/
+            git add -f crawl_state/zol/
             git diff --cached --quiet || git commit -m "chore: update ZOL crawl progress [skip ci]"
             bash scripts/git_sync_progress.sh "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
             echo "complete=false" >> "$GITHUB_OUTPUT"
@@ -141,7 +141,7 @@ jobs:
             echo "complete=false" >> "$GITHUB_OUTPUT"
             exit $EXIT_CODE
           fi
-          git add crawl_state/zol/
+          git add -f crawl_state/zol/
           git diff --cached --quiet || git commit -m "chore: complete ZOL crawl cycle [skip ci]"
           bash scripts/git_sync_progress.sh "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           echo "complete=true" >> "$GITHUB_OUTPUT"
