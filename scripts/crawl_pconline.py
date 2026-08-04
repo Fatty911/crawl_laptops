@@ -25,6 +25,11 @@ except ModuleNotFoundError:
     )
     from merge_data import classify_cpu_voltage, extract_cpu_model
 
+try:
+    from scripts.crawl_runtime import Budget
+except ModuleNotFoundError:
+    from crawl_runtime import Budget
+
 BASE_URL = "https://product.pconline.com.cn"
 PAGE_SIZE = 25
 
@@ -177,12 +182,21 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
     return item
 
 
-def crawl(pages: int, max_items: int, delay: float) -> list[dict[str, Any]]:
+def crawl(
+    pages: int,
+    max_items: int,
+    delay: float,
+    time_limit: float = 0,
+) -> list[dict[str, Any]]:
     session = make_session()
     session.headers["Referer"] = f"{BASE_URL}/notebook/"
+    budget = Budget(time_limit)
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
     for page in range(1, pages + 1):
+        if budget.expired():
+            print("PConline time budget exhausted; keeping scanned prefix")
+            break
         html, final_url = get_html(session, ranking_url((page - 1) * PAGE_SIZE), encoding="gb18030", delay=delay)
         page_items = parse_ranking_page(html, page)
         if not page_items:
@@ -198,9 +212,12 @@ def crawl(pages: int, max_items: int, delay: float) -> list[dict[str, Any]]:
         if len(items) >= max_items:
             break
     for index, item in enumerate(items):
+        if budget.expired():
+            print("PConline time budget exhausted during enrichment; keeping enriched prefix")
+            break
         items[index] = enrich_item(session, item, delay)
         items[index]["fetched_at"] = utc_now()
-    return items
+    return [item for item in items if item.get("fetched_at")]
 
 
 def main() -> int:
@@ -210,12 +227,18 @@ def main() -> int:
     parser.add_argument("--max-items", type=int, default=120)
     parser.add_argument("--min-records", type=int, default=50)
     parser.add_argument("--delay", type=float, default=0.25)
+    parser.add_argument(
+        "--time-limit",
+        type=float,
+        default=0,
+        help="wall-clock budget in seconds (0 = unlimited)",
+    )
     args = parser.parse_args()
     if args.pages < 1 or args.max_items < 1 or args.min_records < 1:
         print("PConline CLI limits must be positive", file=sys.stderr)
         return 2
     try:
-        items = crawl(args.pages, args.max_items, args.delay)
+        items = crawl(args.pages, args.max_items, args.delay, args.time_limit)
     except Exception as exc:
         print(f"PConline crawl failed: {exc}", file=sys.stderr)
         return 2
