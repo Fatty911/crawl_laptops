@@ -12,6 +12,11 @@ from pathlib import Path
 PROGRESS_PATTERNS = [
     r"Exit code:\s*10\b",
     r"exit code\s*10\b",
+    r"本次运行未完成，提交爬取进度",
+    r"update ZOL crawl progress",
+    r"update JD crawl progress",
+    r"complete ZOL crawl cycle",
+    r"complete JD crawl cycle",
     r"已达到时间限制",
     r"已达到车型数量限制",
     r"已达到车系数量限制",

@@ -1,0 +1,147 @@
+name: AI Auto Fix Monitor
+
+on:
+  workflow_run:
+    workflows: ["Crawl ZOL", "Crawl JD", "Crawl PConline"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: ai-auto-fix-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  ai_monitor:
+    name: "AI Diagnose → ${{ github.event.workflow_run.name }}"
+    if: >-
+      ${{
+        github.event.workflow_run.head_branch == 'main' &&
+        (github.event.workflow_run.conclusion == 'failure' ||
+         github.event.workflow_run.conclusion == 'success')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+      WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+      WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      GH_TOKEN: ${{ secrets.ACTION_PAT || github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Download completed workflow logs
+        run: |
+          set +e
+          gh run view "$WORKFLOW_RUN_ID" --log-failed > workflow_error.log 2>/tmp/gh_failed_log_error.txt
+          gh run view "$WORKFLOW_RUN_ID" --log > workflow_full.log 2>/tmp/gh_full_log_error.txt
+          set -e
+          LOGS=""
+          for candidate in workflow_error.log workflow_full.log; do
+            if [ -s "$candidate" ]; then
+              LOGS="$LOGS $candidate"
+              echo "found log: $candidate ($(wc -c < "$candidate") bytes)"
+            fi
+          done
+          if [ -z "$LOGS" ]; then
+            echo "无法获取 workflow 日志"
+            echo "no_logs=true" >> "$GITHUB_ENV"
+          else
+            echo "LOG_FILES=$LOGS" >> "$GITHUB_ENV"
+          fi
+
+      - name: Classify run and build diagnosis prompt
+        id: classify
+        if: env.no_logs != 'true'
+        run: >-
+          python scripts/workflow_failure_diagnosis.py
+          ${{ env.LOG_FILES }}
+          --prompt-output diagnosis_prompt.md
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Run configured free endpoints for diagnosis
+        id: free_route
+        if: steps.classify.outputs.should_diagnose == 'true'
+        continue-on-error: true
+        env:
+          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ZEN_API_KEY: ${{ secrets.ZEN_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          MODAL_API_KEY: ${{ secrets.MODAL_API_KEY }}
+          MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
+          ATOMGIT_API_KEY: ${{ secrets.ATOMGIT_API_KEY }}
+          FREE_LLM_TIMEOUT: "180"
+          FREE_LLM_MAX_TOKENS: "4000"
+        run: >-
+          python scripts/free_first_router.py
+          --prompt-file diagnosis_prompt.md
+          --output diagnosis_response.json
+          --metadata-output diagnosis_route.json
+          --github-output "$GITHUB_OUTPUT"
+          --max-tokens 4000
+
+      - name: File or update diagnosis issue
+        if: steps.classify.outputs.should_diagnose == 'true' || steps.classify.outputs.classification != ''
+        run: |
+          CLASSIFICATION="${{ steps.classify.outputs.classification }}"
+          REASON="${{ steps.classify.outputs.reason }}"
+          TITLE="[AI诊断] ${WORKFLOW_NAME} ${WORKFLOW_CONCLUSION}: ${CLASSIFICATION}"
+          BODY_FILE="diagnosis_issue.md"
+          {
+            echo "- Workflow: \`${WORKFLOW_NAME}\`"
+            echo "- Run: ${WORKFLOW_RUN_ID}"
+            echo "- Conclusion: ${WORKFLOW_CONCLUSION}"
+            echo "- Head SHA: ${WORKFLOW_HEAD_SHA}"
+            echo "- 分类: ${CLASSIFICATION}"
+            echo "- 判定原因: ${REASON}"
+            echo
+          } > "$BODY_FILE"
+          if [ -s diagnosis_response.json ]; then
+            {
+              echo "## 免费端点 AI 诊断"
+              echo
+              echo '```'
+              head -c 12000 diagnosis_response.json
+              echo '```'
+            } >> "$BODY_FILE"
+          else
+            echo "免费端点未能完成诊断（状态: ${{ steps.free_route.outputs.free_status }}）；请人工检查上述 run 日志。" >> "$BODY_FILE"
+          fi
+
+          EXISTING=$(gh issue list --label "crawl-failure-diagnosis" --state open --json number,title \
+            --jq "[.[] | select(.title | contains(\"${WORKFLOW_NAME}\"))] | .[0].number // empty")
+          if [ -n "$EXISTING" ]; then
+            echo "更新已有诊断 issue #${EXISTING}"
+            gh issue comment "$EXISTING" --body-file "$BODY_FILE"
+          else
+            gh issue create \
+              --title "$TITLE" \
+              --body-file "$BODY_FILE" \
+              --label "crawl-failure-diagnosis"
+          fi
+
+      - name: Report monitor result
+        if: always()
+        run: |
+          echo "classification=${{ steps.classify.outputs.classification }}"
+          echo "reason=${{ steps.classify.outputs.reason }}"
+          echo "should_diagnose=${{ steps.classify.outputs.should_diagnose }}"
+          echo "free_status=${{ steps.free_route.outputs.free_status }}"
