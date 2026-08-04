@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -46,6 +47,29 @@ except ModuleNotFoundError:
         utc_now,
     )
     from merge_data import classify_cpu_voltage, extract_cpu_model
+
+try:
+    from scripts.crawl_runtime import (
+        Budget,
+        Progress,
+        append_jsonl,
+        human_delay,
+        item_key,
+        merge_new_items,
+        read_jsonl,
+        rewrite_jsonl,
+    )
+except ModuleNotFoundError:
+    from crawl_runtime import (
+        Budget,
+        Progress,
+        append_jsonl,
+        human_delay,
+        item_key,
+        merge_new_items,
+        read_jsonl,
+        rewrite_jsonl,
+    )
 
 BASE_URL = "https://detail.zol.com.cn"
 # rank.zol.com.cn no longer resolves.  This is ZOL's server-rendered equivalent:
@@ -278,6 +302,124 @@ def crawl(pages: int, max_items: int, delay: float) -> list[dict[str, Any]]:
     return items
 
 
+def crawl_incremental(
+    output: str,
+    progress_dir: str,
+    delay: float,
+    min_records: int,
+    time_limit: float,
+    max_pages: int = 0,
+    max_items: int = 0,
+) -> int:
+    """Long-run incremental crawl with a persistent cursor.
+
+    Ported from the crawl_phones architecture: the ranking scan cursor and
+    the per-item enrichment state survive across workflow runs, the cursor
+    is saved unconditionally after every step, and a wall-clock budget keeps
+    the run inside the Actions window.  Exit codes: 0 = scan and enrichment
+    complete, 10 = partial progress saved (resume on the next run).
+    """
+
+    budget = Budget(time_limit)
+    state_dir = Path(progress_dir)
+    progress = Progress.load(state_dir)
+    items_path = state_dir / "items.jsonl"
+    enriched_path = state_dir / "enriched.jsonl"
+    items = read_jsonl(items_path)
+    enriched: dict[str, dict[str, Any]] = {
+        item_key(record): record
+        for record in read_jsonl(enriched_path)
+        if item_key(record)
+    }
+    session = make_session()
+    session.headers["Referer"] = RANKING_REFERER
+
+    empty_streak = 0
+    if not progress.scan_complete:
+        page = max(progress.current_page, 1)
+        while not budget.expired():
+            if max_pages and page > max_pages:
+                break
+            if max_items and len(items) >= max_items:
+                progress.scan_complete = True
+                break
+            try:
+                html, final_url = get_html(
+                    session,
+                    RANKING_URL.format(page=page),
+                    encoding="gb18030",
+                    delay=human_delay(delay),
+                )
+            except Exception as exc:
+                print(
+                    f"ZOL ranking page {page} fetch failed: "
+                    f"{type(exc).__name__}; will resume next run",
+                    file=sys.stderr,
+                )
+                break
+            page_items = parse_ranking_page(html, page)
+            # Carry the list page as Referer for the next deep request.
+            session.headers["Referer"] = final_url
+            if not page_items:
+                progress.scan_complete = True
+                progress.save(state_dir)
+                break
+            before = len(items)
+            items, added = merge_new_items(items, page_items, item_key)
+            for item in items[before:]:
+                append_jsonl(items_path, item)
+            progress.current_page = page + 1
+            progress.total_items = len(items)
+            progress.save(state_dir)
+            empty_streak = empty_streak + 1 if added == 0 else 0
+            if empty_streak >= 3:
+                # Fake-pagination guard: repeated duplicate pages mean the
+                # ranking has ended; stop instead of looping forever.
+                progress.scan_complete = True
+                progress.save(state_dir)
+                break
+            page += 1
+
+    for item in items:
+        if budget.expired():
+            break
+        key = item_key(item)
+        if key in enriched:
+            continue
+        try:
+            record = enrich_item(session, dict(item), human_delay(delay))
+        except Exception as exc:
+            record = dict(item)
+            record["crawl_warning"] = f"detail_failed:{type(exc).__name__}"
+        record["fetched_at"] = utc_now()
+        enriched[key] = record
+        if key not in progress.processed_ids:
+            progress.processed_ids.append(key)
+        progress.save(state_dir)
+        rewrite_jsonl(enriched_path, list(enriched.values()))
+
+    records = list(enriched.values())
+    if len(records) >= min_records:
+        out = Path(output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            json.dumps(records, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"wrote {len(records)} ZOL records to {out}")
+    else:
+        print(
+            f"ZOL has {len(records)} enriched records (< {min_records}); "
+            "keeping progress without publishing",
+            file=sys.stderr,
+        )
+    progress.save(state_dir)
+    complete = progress.scan_complete and all(
+        item_key(item) in enriched for item in items
+    )
+    return 0 if complete else 10
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="data/raw/zol/latest.json")
@@ -285,7 +427,34 @@ def main() -> int:
     parser.add_argument("--max-items", type=int, default=120)
     parser.add_argument("--delay", type=float, default=0.25)
     parser.add_argument("--min-records", type=int, default=50)
+    parser.add_argument(
+        "--time-limit",
+        type=float,
+        default=0,
+        help="incremental mode wall-clock budget in seconds (0 = unlimited)",
+    )
+    parser.add_argument(
+        "--progress-dir",
+        default="",
+        help="incremental cursor directory; enables long-run mode",
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=0,
+        help="incremental mode page cap (0 = unlimited)",
+    )
     args = parser.parse_args()
+    if args.progress_dir:
+        return crawl_incremental(
+            args.output,
+            args.progress_dir,
+            args.delay,
+            args.min_records,
+            args.time_limit,
+            args.max_pages,
+            args.max_items,
+        )
     try:
         items = crawl(args.pages, args.max_items, args.delay)
     except Exception as exc:
