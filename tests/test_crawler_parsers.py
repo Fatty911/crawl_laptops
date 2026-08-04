@@ -113,7 +113,7 @@ def test_jd_keeps_valid_prefix_when_a_later_page_is_empty(monkeypatch):
         )
     )
     monkeypatch.setattr(jd, "get_html", lambda *args, **kwargs: next(pages))
-    monkeypatch.setattr(jd, "enrich_item", lambda session, item, delay: item)
+    monkeypatch.setattr(jd, "enrich_item", lambda session, item, delay, detail_delay=None: item)
 
     rows = crawl_jd(4, 120, 0, None)
 

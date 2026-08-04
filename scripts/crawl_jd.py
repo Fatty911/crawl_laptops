@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ from urllib.parse import urlparse
 
 try:
     from scripts.crawler_utils import (
+        USER_AGENTS,
         clean_text,
         get_html,
         gpu_fields,
@@ -29,9 +31,14 @@ try:
         text_from_spec,
         utc_now,
     )
-    from scripts.merge_data import classify_cpu_voltage, extract_cpu_model
+    from scripts.merge_data import (
+        classify_cpu_voltage,
+        clean_jd_title_identity,
+        extract_cpu_model,
+    )
 except ModuleNotFoundError:
     from crawler_utils import (
+        USER_AGENTS,
         clean_text,
         get_html,
         gpu_fields,
@@ -46,7 +53,11 @@ except ModuleNotFoundError:
         text_from_spec,
         utc_now,
     )
-    from merge_data import classify_cpu_voltage, extract_cpu_model
+    from merge_data import (
+        classify_cpu_voltage,
+        clean_jd_title_identity,
+        extract_cpu_model,
+    )
 
 SALES_RANKING_URL = "https://www.jd.com/hotitem/670a86a27721a2eeea8.html"
 
@@ -96,6 +107,7 @@ def parse_search_page(html: Any, page: int) -> list[dict[str, Any]]:
             {
                 "title": title,
                 "model": title,
+                "model_identity": clean_jd_title_identity(title),
                 "brand": infer_brand(title),
                 "price": parse_price(price_node.get_text(strip=True) if price_node else ""),
                 "currency": "CNY",
@@ -191,10 +203,19 @@ def title_spec_fields(title: str) -> dict[str, Any]:
     }
 
 
-def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, Any]:
+def enrich_item(
+    session: Any,
+    item: dict[str, Any],
+    delay: float,
+    detail_delay: float | None = None,
+) -> dict[str, Any]:
     item.update(title_spec_fields(item["title"]))
     try:
-        html, final_url = get_html(session, item["source_url"], delay=delay)
+        # Rotate the UA per detail request and use the longer detail delay:
+        # JD risk control correlates repeated identical UA bursts.
+        session.headers["User-Agent"] = random.choice(USER_AGENTS)
+        effective_delay = detail_delay if detail_delay is not None else delay
+        html, final_url = get_html(session, item["source_url"], delay=effective_delay)
     except Exception as exc:
         item["crawl_warning"] = f"detail_failed:{type(exc).__name__}"
         return item
@@ -284,7 +305,13 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
     return item
 
 
-def crawl(pages: int, max_items: int, delay: float, cookie: str | None) -> list[dict[str, Any]]:
+def crawl(
+    pages: int,
+    max_items: int,
+    delay: float,
+    cookie: str | None,
+    detail_delay: float | None = None,
+) -> list[dict[str, Any]]:
     session = make_session(cookie)
     session.headers["Referer"] = "https://www.jd.com/"
     items: list[dict[str, Any]] = []
@@ -313,7 +340,7 @@ def crawl(pages: int, max_items: int, delay: float, cookie: str | None) -> list[
             break
         session.headers["Referer"] = final_url
     for index, item in enumerate(items):
-        items[index] = enrich_item(session, item, delay)
+        items[index] = enrich_item(session, item, delay, detail_delay)
         items[index]["fetched_at"] = utc_now()
     return items
 
@@ -324,10 +351,22 @@ def main() -> int:
     parser.add_argument("--pages", type=int, default=4)
     parser.add_argument("--max-items", type=int, default=120)
     parser.add_argument("--delay", type=float, default=0.35)
+    parser.add_argument(
+        "--detail-delay",
+        type=float,
+        default=0.8,
+        help="extra pacing for JD detail pages to reduce risk verification",
+    )
     parser.add_argument("--min-records", type=int, default=50)
     args = parser.parse_args()
     try:
-        items = crawl(args.pages, args.max_items, args.delay, os.getenv("JD_COOKIE"))
+        items = crawl(
+            args.pages,
+            args.max_items,
+            args.delay,
+            os.getenv("JD_COOKIE"),
+            args.detail_delay,
+        )
     except Exception as exc:
         print(f"JD crawl failed: {exc}", file=sys.stderr)
         return 2

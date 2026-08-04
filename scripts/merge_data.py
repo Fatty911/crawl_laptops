@@ -75,6 +75,54 @@ POSSIBLE_SUFFIXLESS_DESKTOP_CPU_PATTERN = re.compile(
 )
 
 
+JD_PROMO_PREFIX_PATTERN = re.compile(r"^(?:【[^】]*】\s*)+")
+JD_BRAND_PAREN_PATTERN = re.compile(r"^([^\s（(]{1,16})[（(]([A-Za-z0-9 .&\-]{1,24})[）)]\s*")
+JD_CONFIG_STOP_PATTERN = re.compile(
+    r"(?:"
+    # CPU: i7-14650HX / 13代酷睿i7-13650HX / Ultra 7 255HX / Ryzen 9 7945HX / 锐龙R9
+    r"(?:\d{1,2}\s*代)?(?:酷睿|锐龙)?\s*(?:i[3579]|Ultra\s*[3579])\s*[- ]?\s*\d{3,5}[A-Za-z]{0,4}"
+    r"|(?:Ryzen|锐龙)\s*(?:R?[3579]\s*)?\d{4,5}[A-Za-z]{0,4}"
+    # GPU
+    r"|\b(?:RTX|GTX)\s*\d{3,4}\w?|\bRadeon\s*RX|\bArc\s*A?\d{3,4}"
+    # memory / storage capacities: 16G, 16GB, 1T, 1TB, 512G固态硬盘, 16G运行内存
+    r"|\b\d+(?:\.\d+)?\s*(?:TB|GB)(?=$|[\s+/]|固态|硬盘)"
+    r"|\b\d+(?:\.\d+)?\s*[TG](?=$|[\s+/]|固态|硬盘|内存|运行)"
+    # screen size / resolution / refresh rate
+    r"|\d{2}(?:\.\d+)?\s*英寸"
+    r"|\b\d{3,4}\s*[xX×]\s*\d{3,4}\b|\b\d+(?:\.\d+)?\s*K(?=\s|$)|\b\d{3,4}P(?=\s|$)"
+    r"|\b\d{2,4}\s*Hz"
+    # marketing category words that never belong to a model name
+    r"|电竞|游戏本|笔记本电脑|笔记本|轻薄本|办公本|工作站|台式机|一体机|迷你主机|设计师"
+    # trailing colour words
+    r"|[黑白灰银蓝红绿紫金粉橙棕]色"
+    r")",
+    re.I,
+)
+
+
+def clean_jd_title_identity(title: Any) -> str:
+    """Extract the real model name from a JD marketing title.
+
+    JD search titles wrap configuration noise (CPU, GPU, RAM, storage,
+    colour, category words) around the model name and prefix it with a
+    brand label such as ``联想(Lenovo)``.  Catalog sources expose the bare
+    model, so JD rows can only join them after this noise is removed.
+    Unknown titles fall back to the original text; identity matching stays
+    fail-closed downstream.
+    """
+
+    original = unicodedata.normalize("NFKC", str(title or "")).strip()
+    text = JD_PROMO_PREFIX_PATTERN.sub("", original)
+    brand_match = JD_BRAND_PAREN_PATTERN.match(text)
+    if brand_match:
+        text = text[brand_match.end():]
+    stop = JD_CONFIG_STOP_PATTERN.search(text)
+    if stop:
+        text = text[: stop.start()]
+    cleaned = re.sub(r"\s+", " ", text).strip().strip("()（）")
+    return cleaned or original
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -154,8 +202,11 @@ def canonical_model_family(record: dict[str, Any]) -> str:
     )
     text = unicodedata.normalize("NFKC", str(raw or "")).strip()
     sources = set(atomic_sources(record))
-    if not record.get("model_identity") and sources.intersection({"ZOL", "PConline"}):
-        text = re.split(r"[（(]", text, maxsplit=1)[0].strip()
+    if not record.get("model_identity"):
+        if sources.intersection({"ZOL", "PConline"}):
+            text = re.split(r"[（(]", text, maxsplit=1)[0].strip()
+        elif sources == {"JD"}:
+            text = clean_jd_title_identity(text)
 
     family = _identity_text(text)
     canonical_brand = normalize_brand(
