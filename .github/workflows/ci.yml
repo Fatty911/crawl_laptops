@@ -42,6 +42,9 @@ jobs:
           scripts/*.py
           docs/*.html docs/*.js docs/*.css
 
+      - name: Validate workflow expectations
+        run: python scripts/validate_workflow_expectations.py
+
       - name: Check patch whitespace
         env:
           EVENT_NAME: ${{ github.event_name }}
