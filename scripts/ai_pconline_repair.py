@@ -38,10 +38,28 @@ DETERMINISTIC_NEW_FILES = {".github/workflows/crawl-pconline.yml"}
 # sandbox lifecycle are fixed by this generator rather than authored by the
 # model.  Keep this in the production generator instead of importing the test
 # fixture, so every generated patch receives the same trusted shape.
-PCONLINE_WORKFLOW_TEMPLATE = """name: Crawl PConline
+PCONLINE_WORKFLOW_TEMPLATE = """
+name: Crawl PConline
 
 on:
   workflow_dispatch:
+    inputs:
+      force_restart:
+        description: '强制重新开始（清除增量进度）'
+        required: false
+        default: 'false'
+      run_profile:
+        description: '运行时长配置：auto/morning/afternoon'
+        required: false
+        default: 'auto'
+      max_items:
+        description: '最多爬取条数（调试用，0=不限制）'
+        required: false
+        default: '0'
+      debug_mode:
+        description: '调试模式（忽略时间窗口）'
+        required: false
+        default: 'false'
   schedule:
     - cron: "07 4 * * 3"
     - cron: "07 6 * * *"
@@ -53,50 +71,107 @@ concurrency:
   group: pconline-crawl-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  RUN_TIME: 10800
+  MORNING_RUN_TIME: 10800
+  AFTERNOON_RUN_TIME: 21600
+  MAX_WORKFLOW_SECONDS: 21600
+  PROGRESS_COMMIT_BUFFER_SECONDS: 1800
+  WINDOW_END_BUFFER_SECONDS: 900
+  MAX_PAGES: 0
+  CRAWL_MIN_DELAY_SECONDS: 8
+  CRAWL_MAX_DELAY_SECONDS: 20
+
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 390
     steps:
       - name: Checkout
         uses: actions/checkout@main
         with:
           persist-credentials: false
+
+      - name: Prepare crawl state
+        run: |
+          mkdir -p crawl_state/pconline
+          echo "WORKFLOW_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+          if [ "${{ github.event.inputs.force_restart }}" = "true" ]; then
+            rm -f crawl_state/pconline/progress.json crawl_state/pconline/items.jsonl crawl_state/pconline/enriched.jsonl
+            echo "强制重启，重置增量爬取进度"
+          fi
+
+      - name: Configure crawl window
+        id: window
+        env:
+          PROFILE_INPUT: ${{ github.event.inputs.run_profile || 'auto' }}
+        run: |
+          if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
+            echo "调试模式：跳过时间窗口检查"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            DEBUG_LIMIT="${{ github.event.inputs.max_items }}"
+            if [ "$DEBUG_LIMIT" = "0" ]; then DEBUG_LIMIT=30; fi
+            echo "MAX_ITEMS=$DEBUG_LIMIT" >> "$GITHUB_ENV"
+            echo "RUN_TIME=1800" >> "$GITHUB_ENV"
+          else
+            python scripts/crawl_budget.py configure
+            echo "MAX_ITEMS=${{ github.event.inputs.max_items || '0' }}" >> "$GITHUB_ENV"
+          fi
+
       - name: Set up Python
+        if: steps.window.outputs.skip != 'true'
         uses: actions/setup-python@main
         with:
           python-version: "3.12"
           cache: pip
+
       - name: Install dependencies
+        if: steps.window.outputs.skip != 'true'
         run: python -m pip install -r requirements.txt
+
       - name: Configure required crawler proxy
+        if: steps.window.outputs.skip != 'true'
         env:
           PROXY_SUBSCRIPTIONS: ${{ secrets.PROXY_SUBSCRIPTIONS }}
         run: >-
           python scripts/setup_proxy_runtime.py
           --require-proxy
           --test-url https://product.pconline.com.cn/notebook/s10.shtml
+
+      - name: Clamp step1 runtime to workflow budget
+        if: steps.window.outputs.skip != 'true'
+        run: python scripts/crawl_budget.py clamp --step-label step1 --skip-env STEP1_SKIP
+
       - name: Crawl popularity ranking
+        id: step1
+        if: steps.window.outputs.skip != 'true'
         run: >-
           python scripts/ai_pconline_repair.py run-sandboxed
           --out "$RUNNER_TEMP/ai-sandbox-out" --
           python scripts/crawl_pconline.py
           --output /out/latest.json
-          --pages 5
-          --max-items 120
+          --time-limit "$RUN_TIME"
+          --max-items "$MAX_ITEMS"
           --min-records 50
+
       - name: Copy sandbox output
+        if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
         run: >-
           mkdir -p data/raw/pconline &&
           test -s "$RUNNER_TEMP/ai-sandbox-out/latest.json" &&
           cp "$RUNNER_TEMP/ai-sandbox-out/latest.json" data/raw/pconline/latest.json
+
       - name: Clear crawler proxy environment
         if: always()
         run: python scripts/setup_proxy_runtime.py --clear
+
       - name: Set artifact date
+        if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
         id: date
         run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
       - name: Upload crawler data
+        if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
         uses: actions/upload-artifact@main
         with:
           name: pconline-data-${{ steps.date.outputs.date }}
@@ -958,7 +1033,7 @@ def check_new_workflow(repo: Path) -> None:
         fail("PConline workflow contains a forbidden trigger/token/command/control setting")
     workflow = yaml.safe_load(source)
     trigger_keys = {key for key in ("on", True) if isinstance(workflow, dict) and key in workflow}
-    expected_keys = {"name", "permissions", "concurrency", "jobs"} | trigger_keys
+    expected_keys = {"name", "env", "permissions", "concurrency", "jobs"} | trigger_keys
     if not isinstance(workflow, dict) or len(trigger_keys) != 1 or set(workflow) != expected_keys:
         fail("PConline workflow top-level structure is not the minimal controlled shape")
     if workflow.get("name") != "Crawl PConline":
@@ -966,8 +1041,19 @@ def check_new_workflow(repo: Path) -> None:
     event = triggers(workflow)
     if not isinstance(event, dict) or set(event) != {"workflow_dispatch", "schedule"}:
         fail("PConline workflow allows an extra or missing trigger")
-    if event.get("workflow_dispatch") not in (None, {}):
-        fail("PConline manual trigger may not accept attacker-controlled inputs")
+    # workflow_dispatch must have the exact controlled inputs shape
+    dispatch = event.get("workflow_dispatch")
+    if not isinstance(dispatch, dict) or set(dispatch) != {"inputs"}:
+        fail("PConline workflow_dispatch must have a fixed inputs dict")
+    inputs = dispatch.get("inputs", {})
+    expected_inputs = {"force_restart", "run_profile", "max_items", "debug_mode"}
+    if set(inputs) != expected_inputs:
+        fail(f"PConline workflow_dispatch inputs mismatch: expected {expected_inputs}, got {set(inputs)}")
+    for inp_name, inp in inputs.items():
+        if not isinstance(inp, dict) or set(inp) != {"description", "required", "default"}:
+            fail(f"PConline input {inp_name} structure changed")
+        if inp.get("required") is not False or not isinstance(inp.get("default"), str):
+            fail(f"PConline input {inp_name} must be optional with string default")
     schedule = event.get("schedule")
     if not isinstance(schedule, list) or len(schedule) != 2:
         fail("PConline workflow needs exactly two controlled schedules")
@@ -982,49 +1068,83 @@ def check_new_workflow(repo: Path) -> None:
         fail("PConline workflow permissions must be contents:read only")
     if workflow.get("concurrency") != {"group": "pconline-crawl-${{ github.ref }}", "cancel-in-progress": False}:
         fail("PConline workflow must use its own non-cancelling concurrency group")
+    env = workflow.get("env")
+    expected_env_vars = {
+        "RUN_TIME", "MORNING_RUN_TIME", "AFTERNOON_RUN_TIME", "MAX_WORKFLOW_SECONDS",
+        "PROGRESS_COMMIT_BUFFER_SECONDS", "WINDOW_END_BUFFER_SECONDS", "MAX_PAGES",
+        "CRAWL_MIN_DELAY_SECONDS", "CRAWL_MAX_DELAY_SECONDS",
+    }
+    if not isinstance(env, dict) or set(env) != expected_env_vars:
+        fail("PConline workflow env vars mismatch")
+    for key in expected_env_vars:
+        if not isinstance(env[key], (int, str)):
+            fail(f"PConline env {key} must be int or string")
     jobs = workflow.get("jobs")
     if not isinstance(jobs, dict) or set(jobs) != {"crawl"}:
         fail("PConline workflow must contain only the controlled crawl job")
     job = jobs["crawl"]
     if not isinstance(job, dict) or set(job) != {"runs-on", "timeout-minutes", "steps"}:
         fail("PConline crawl job structure expanded")
-    if job["runs-on"] != "ubuntu-latest" or job["timeout-minutes"] != 45:
+    if job["runs-on"] != "ubuntu-latest" or job["timeout-minutes"] != 390:
         fail("PConline crawl runner or timeout changed")
     steps = job["steps"]
     expected_names = [
-        "Checkout", "Set up Python", "Install dependencies", "Configure required crawler proxy",
-        "Crawl popularity ranking", "Copy sandbox output", "Clear crawler proxy environment",
+        "Checkout", "Prepare crawl state", "Configure crawl window",
+        "Set up Python", "Install dependencies", "Configure required crawler proxy",
+        "Clamp step1 runtime to workflow budget", "Crawl popularity ranking",
+        "Copy sandbox output", "Clear crawler proxy environment",
         "Set artifact date", "Upload crawler data",
     ]
     if not isinstance(steps, list) or [step.get("name") for step in steps] != expected_names:
-        fail("PConline workflow steps must exactly match the verified sandboxed source lifecycle")
-    checkout, setup_python, install, proxy, crawl, copy_step, clear, date_step, upload = steps
+        fail("PConline workflow steps must exactly match the verified long-run lifecycle")
+    checkout, prepare, window_step, setup_python, install, proxy, clamp, crawl, copy_step, clear, date_step, upload = steps
     if checkout != {
         "name": "Checkout", "uses": "actions/checkout@main", "with": {"persist-credentials": False}
     }:
         fail("PConline checkout must use @main without persisted credentials")
+    if prepare.get("name") != "Prepare crawl state" or not isinstance(prepare.get("run"), str) or "mkdir -p crawl_state/pconline" not in str(prepare.get("run", "")):
+        fail("PConline prepare crawl state step changed")
+    if window_step.get("name") != "Configure crawl window" or window_step.get("id") != "window":
+        fail("PConline configure crawl window step changed")
+    if window_step.get("env") != {"PROFILE_INPUT": "${{ github.event.inputs.run_profile || 'auto' }}" }:
+        fail("PConline window env changed")
+    if "crawl_budget.py configure" not in str(window_step.get("run", "")):
+        fail("PConline configure crawl window must invoke crawl_budget.py")
     if setup_python != {
-        "name": "Set up Python", "uses": "actions/setup-python@main",
+        "name": "Set up Python", "if": "steps.window.outputs.skip != 'true'",
+        "uses": "actions/setup-python@main",
         "with": {"python-version": "3.12", "cache": "pip"},
     }:
         fail("PConline Python setup changed")
-    if install != {"name": "Install dependencies", "run": "python -m pip install -r requirements.txt"}:
+    if install != {
+        "name": "Install dependencies", "if": "steps.window.outputs.skip != 'true'",
+        "run": "python -m pip install -r requirements.txt",
+    }:
         fail("PConline dependency installation changed")
-    if proxy.get("env") != {"PROXY_SUBSCRIPTIONS": "${{ secrets.PROXY_SUBSCRIPTIONS }}"} or set(proxy) != {"name", "env", "run"}:
+    if proxy.get("env") != {"PROXY_SUBSCRIPTIONS": "${{ secrets.PROXY_SUBSCRIPTIONS }}" } or set(proxy) != {"name", "if", "env", "run"}:
         fail("PConline proxy secret must be scoped to its single setup step")
     expected_proxy = "python scripts/setup_proxy_runtime.py --require-proxy --test-url https://product.pconline.com.cn/notebook/s10.shtml"
     if " ".join(str(proxy.get("run", "")).split()) != expected_proxy:
         fail("PConline proxy setup command changed")
+    if clamp.get("name") != "Clamp step1 runtime to workflow budget" or clamp.get("if") != "steps.window.outputs.skip != 'true'":
+        fail("PConline clamp step changed")
+    if "crawl_budget.py clamp" not in str(clamp.get("run", "")):
+        fail("PConline clamp must invoke crawl_budget.py clamp")
+    if crawl.get("id") != "step1" or crawl.get("if") != "steps.window.outputs.skip != 'true'":
+        fail("PConline crawl step id or condition changed")
     expected_crawl = (
         "python scripts/ai_pconline_repair.py run-sandboxed "
         "--out \"$RUNNER_TEMP/ai-sandbox-out\" -- "
         "python scripts/crawl_pconline.py --output /out/latest.json "
-        "--pages 5 --max-items 120 --min-records 50"
+        "--time-limit \"$RUN_TIME\" --max-items \"$MAX_ITEMS\" --min-records 50"
     )
-    if set(crawl) != {"name", "run"} or " ".join(str(crawl.get("run", "")).split()) != expected_crawl:
-        fail("PConline crawl command must run the untrusted crawler only inside the fixed Docker sandbox")
+    if set(crawl) != {"name", "id", "if", "run"} or " ".join(str(crawl.get("run", "")).split()) != expected_crawl:
+        fail("PConline crawl command must use time-limit and max-items inside the fixed Docker sandbox")
+    if copy_step.get("if") != "steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'":
+        fail("PConline copy sandbox output must gate on skip and completion")
     if copy_step != {
         "name": "Copy sandbox output",
+        "if": "steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'",
         "run": (
             "mkdir -p data/raw/pconline && "
             "test -s \"$RUNNER_TEMP/ai-sandbox-out/latest.json\" && "
@@ -1037,21 +1157,24 @@ def check_new_workflow(repo: Path) -> None:
         "run": "python scripts/setup_proxy_runtime.py --clear",
     }:
         fail("PConline proxy cleanup changed")
-    if date_step != {
-        "name": "Set artifact date", "id": "date",
-        "run": 'echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"',
+    if date_step.get("if") != "steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'":
+        fail("PConline artifact date must gate on skip and completion")
+    if set(date_step) != {"name", "if", "id", "run"} or date_step.get("id") != "date":
+        fail("PConline artifact date step structure changed")
+    if upload.get("if") != "steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'":
+        fail("PConline artifact upload must gate on skip and completion")
+    if set(upload) != {"name", "if", "uses", "with"}:
+        fail("PConline artifact upload step structure changed")
+    if upload.get("uses") != "actions/upload-artifact@main":
+        fail("PConline artifact upload action changed")
+    if upload.get("with") != {
+        "name": "pconline-data-${{ steps.date.outputs.date }}",
+        "path": "data/raw/pconline/latest.json",
+        "if-no-files-found": "error",
+        "retention-days": 30,
     }:
-        fail("PConline artifact date step changed")
-    if upload != {
-        "name": "Upload crawler data", "uses": "actions/upload-artifact@main",
-        "with": {
-            "name": "pconline-data-${{ steps.date.outputs.date }}",
-            "path": "data/raw/pconline/latest.json",
-            "if-no-files-found": "error",
-            "retention-days": 30,
-        },
-    }:
-        fail("PConline artifact upload step changed")
+        fail("PConline artifact upload config changed")
+    # Check proxy secret count: PROXY_SUBSCRIPTIONS appears in env (step-level) and in the run command
     if source.count("secrets.") != 1 or source.count("PROXY_SUBSCRIPTIONS") != 2:
         fail("PConline workflow may contain only one controlled proxy secret reference")
 
