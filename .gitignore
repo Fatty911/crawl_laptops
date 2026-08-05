@@ -5,6 +5,7 @@ __pycache__/
 venv/
 .env
 /data/*
+!/data/keyboard_facts.json
 data/raw/
 data/work/
 dist/

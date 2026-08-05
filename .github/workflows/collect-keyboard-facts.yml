@@ -1,0 +1,45 @@
+# 键盘事实表采集（手动/定时）：从品牌官网采集型号级键盘事实
+# 产出 data/keyboard_facts.json，merge 时按 系列+尺寸 补源站缺失的键盘证据
+name: 采集键盘事实表
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每周三 04:17 UTC = 12:17 北京时间（与 ZOL 周爬错开）
+    - cron: "17 4 * * 3"
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+
+      - name: Collect keyboard facts
+        run: |
+          python scripts/crawl_keyboard_facts.py --output data/keyboard_facts.json
+
+      - name: Commit facts if changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "xuerui911@gmail.com"
+          git add data/keyboard_facts.json
+          if git diff --cached --quiet; then
+            echo "facts unchanged"
+          else
+            git commit -m "chore: update keyboard facts from official sites [skip ci]"
+            bash scripts/git_sync_progress.sh "https://x-access-token:${GH_TOKEN}@github.com/Fatty911/crawl_laptops.git"
+          fi

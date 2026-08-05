@@ -135,6 +135,75 @@ def clean_jd_title_identity(title: Any) -> str:
     return cleaned or original
 
 
+KEYBOARD_FACTS_PATH = Path(__file__).resolve().parent.parent / "data" / "keyboard_facts.json"
+
+
+def load_keyboard_facts(path: str | Path = KEYBOARD_FACTS_PATH) -> list[dict]:
+    """加载官网键盘事实表；文件不存在时返回空列表（不阻断 merge）。"""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def _title_series_size(title: str) -> tuple[str, str]:
+    """从爬虫标题提取系列词与尺寸，用于事实表匹配（与采集脚本同一套规则）。"""
+    text = str(title or "")
+    size_m = re.search(r"(\d+(?:\.\d+)?)\s*(?:英?寸|英寸|inch|吋)", text, re.I)
+    size = f"{size_m.group(1)}英寸" if size_m else ""
+    return text, size
+
+
+def keyboard_fact_for(title: str, facts: list[dict] | None = None) -> dict | None:
+    """按 系列+尺寸 匹配官网键盘事实。
+
+    匹配规则：title 必须同时包含事实的 series 与 size_inch（尺寸非空时）。
+    返回匹配的事实 dict；无匹配返回 None。
+    """
+    if facts is None:
+        facts = load_keyboard_facts()
+    if not facts or not title:
+        return None
+    text, size = _title_series_size(title)
+    best: dict | None = None
+    for fact in facts:
+        series = str(fact.get("series") or "")
+        fact_size = str(fact.get("size_inch") or "")
+        if not series:
+            continue
+        if series not in text:
+            continue
+        if fact_size and fact_size != size:
+            continue
+        # 同系列多尺寸：优先精确尺寸命中
+        if best is None or (fact_size and not best.get("size_inch")):
+            best = fact
+    return best
+
+
+def apply_keyboard_facts(merged: dict[str, Any], facts: list[dict] | None = None) -> dict[str, Any]:
+    """merge_group 末尾调用：源证据缺失时用官网事实补 numeric_keypad/backlight。
+
+    只补 None（不覆盖源站证据）；补入时把来源写入 evidence，确保可追溯。
+    """
+    if merged.get("numeric_keypad") is not None and merged.get("keyboard_backlight") is not None:
+        return merged
+    fact = keyboard_fact_for(str(merged.get("title", "")), facts)
+    if not fact:
+        return merged
+    evidence = merged.setdefault("evidence", {})
+    changed = False
+    for field, key in (("numeric_keypad", "numeric_keypad"), ("keyboard_backlight", "keyboard_backlight")):
+        if merged.get(field) is None and fact.get(field) is not None:
+            merged[field] = fact[field]
+            evidence[f"{field}_fact"] = fact.get("keyboard_text", "")
+            evidence[f"{field}_fact_url"] = fact.get("page_url", "")
+            changed = True
+    if changed:
+        merged.setdefault("keyboard_fact_sources", []).append(fact.get("source", "official"))
+    return merged
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -485,6 +554,7 @@ def merge_group(records: list[dict[str, Any]]) -> dict[str, Any]:
     merged["cpu"] = extract_cpu_model(merged.get("cpu"))
     merged["cpu_voltage_type"] = _record_cpu_voltage(merged)
     merged["identity_key"] = build_identity_key(merged)
+    merged = apply_keyboard_facts(merged)
     return merged
 
 
