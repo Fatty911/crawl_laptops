@@ -184,7 +184,8 @@ jobs:
           name: pconline-data-${{ steps.date.outputs.date }}
           path: data/raw/pconline/latest.json
           if-no-files-found: error
-          retention-days: 30"""
+          retention-days: 30
+"""
 
 # Keep a complete deterministic crawler fallback.  The repair model may still
 # propose a crawler, but a truncated or incomplete response must never become
