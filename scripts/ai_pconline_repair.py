@@ -38,8 +38,7 @@ DETERMINISTIC_NEW_FILES = {".github/workflows/crawl-pconline.yml"}
 # sandbox lifecycle are fixed by this generator rather than authored by the
 # model.  Keep this in the production generator instead of importing the test
 # fixture, so every generated patch receives the same trusted shape.
-PCONLINE_WORKFLOW_TEMPLATE = """
-name: Crawl PConline
+PCONLINE_WORKFLOW_TEMPLATE = """name: Crawl PConline
 
 on:
   workflow_dispatch:

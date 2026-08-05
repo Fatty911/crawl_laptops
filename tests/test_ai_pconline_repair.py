@@ -684,7 +684,7 @@ def test_build_integration_patch_applies_cleanly(tmp_path):
     assert (".github/workflows/merge-and-filter.yml" in patch) is not integrated
     if integrated:
         workflow_before = repair.git_show(root, ".github/workflows/crawl-pconline.yml")
-        assert "mkdir -p data/raw/pconline" in patch
+        assert "mkdir -p data/raw/pconline" in workflow_before
     else:
         assert 'python scripts/ai_pconline_repair.py run-sandboxed' in patch
     if ".github/workflows/crawl-pconline.yml" in patch:
