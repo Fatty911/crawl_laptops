@@ -366,11 +366,19 @@ def crawl_incremental(
                 break
             before = len(items)
             items, added = merge_new_items(items, page_items, item_key)
+            if max_items and len(items) > max_items:
+                # Debug cap: truncate so --max-items is exact, then finish
+                # scanning (progress says scan_complete so next run resumes
+                # from enrichment without re-fetching pages).
+                items = items[:max_items]
+                progress.scan_complete = True
             for item in items[before:]:
                 append_jsonl(items_path, item)
             progress.current_page = page + 1
             progress.total_items = len(items)
             progress.save(state_dir)
+            if progress.scan_complete and len(items) >= max_items and max_items:
+                break
             empty_streak = empty_streak + 1 if added == 0 else 0
             if empty_streak >= 3:
                 # Fake-pagination guard: repeated duplicate pages mean the

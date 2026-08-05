@@ -104,14 +104,22 @@ jobs:
       - name: Crawl popularity ranking
         id: step1
         if: steps.window.outputs.skip != 'true'
-        run: >-
-          python scripts/ai_pconline_repair.py run-sandboxed
-          --out "$RUNNER_TEMP/ai-sandbox-out" --
-          python scripts/crawl_pconline.py
-          --output /out/latest.json
-          --time-limit "$RUN_TIME"
-          --max-items "$MAX_ITEMS"
-          --min-records 50
+        run: |
+          if [ "${STEP1_SKIP:-false}" = "true" ]; then
+            echo "step1 已因剩余安全时间不足跳过"
+            echo "complete=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          python scripts/ai_pconline_repair.py run-sandboxed             --out "$RUNNER_TEMP/ai-sandbox-out" --             python scripts/crawl_pconline.py             --output /out/latest.json             --time-limit "$RUN_TIME"             --max-items "$MAX_ITEMS"             --min-records 50
+          EXIT_CODE=$?
+          set -e
+          echo "PConline crawl exit code: $EXIT_CODE"
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "complete=false" >> "$GITHUB_OUTPUT"
+            exit $EXIT_CODE
+          fi
+          echo "complete=true" >> "$GITHUB_OUTPUT"
 
       - name: Copy sandbox output
         if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'

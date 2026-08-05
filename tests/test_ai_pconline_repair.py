@@ -89,147 +89,7 @@ def test_docs_guard_rejects_any_other_markup_change():
         check_docs_source_line(before, after)
 
 
-SAFE_PCONLINE_WORKFLOW = """
-name: Crawl PConline
-
-on:
-  workflow_dispatch:
-    inputs:
-      force_restart:
-        description: '强制重新开始（清除增量进度）'
-        required: false
-        default: 'false'
-      run_profile:
-        description: '运行时长配置：auto/morning/afternoon'
-        required: false
-        default: 'auto'
-      max_items:
-        description: '最多爬取条数（调试用，0=不限制）'
-        required: false
-        default: '0'
-      debug_mode:
-        description: '调试模式（忽略时间窗口）'
-        required: false
-        default: 'false'
-  schedule:
-    - cron: "07 4 * * 3"
-    - cron: "07 6 * * *"
-
-permissions:
-  contents: read
-
-concurrency:
-  group: pconline-crawl-${{ github.ref }}
-  cancel-in-progress: false
-
-env:
-  RUN_TIME: 10800
-  MORNING_RUN_TIME: 10800
-  AFTERNOON_RUN_TIME: 21600
-  MAX_WORKFLOW_SECONDS: 21600
-  PROGRESS_COMMIT_BUFFER_SECONDS: 1800
-  WINDOW_END_BUFFER_SECONDS: 900
-  MAX_PAGES: 0
-  CRAWL_MIN_DELAY_SECONDS: 8
-  CRAWL_MAX_DELAY_SECONDS: 20
-
-jobs:
-  crawl:
-    runs-on: ubuntu-latest
-    timeout-minutes: 390
-    steps:
-      - name: Checkout
-        uses: actions/checkout@main
-        with:
-          persist-credentials: false
-
-      - name: Prepare crawl state
-        run: |
-          mkdir -p crawl_state/pconline
-          echo "WORKFLOW_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
-          if [ "${{ github.event.inputs.force_restart }}" = "true" ]; then
-            rm -f crawl_state/pconline/progress.json crawl_state/pconline/items.jsonl crawl_state/pconline/enriched.jsonl
-            echo "强制重启，重置增量爬取进度"
-          fi
-
-      - name: Configure crawl window
-        id: window
-        env:
-          PROFILE_INPUT: ${{ github.event.inputs.run_profile || 'auto' }}
-        run: |
-          if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
-            echo "调试模式：跳过时间窗口检查"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            DEBUG_LIMIT="${{ github.event.inputs.max_items }}"
-            if [ "$DEBUG_LIMIT" = "0" ]; then DEBUG_LIMIT=30; fi
-            echo "MAX_ITEMS=$DEBUG_LIMIT" >> "$GITHUB_ENV"
-            echo "RUN_TIME=1800" >> "$GITHUB_ENV"
-          else
-            python scripts/crawl_budget.py configure
-            echo "MAX_ITEMS=${{ github.event.inputs.max_items || '0' }}" >> "$GITHUB_ENV"
-          fi
-
-      - name: Set up Python
-        if: steps.window.outputs.skip != 'true'
-        uses: actions/setup-python@main
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install dependencies
-        if: steps.window.outputs.skip != 'true'
-        run: python -m pip install -r requirements.txt
-
-      - name: Configure required crawler proxy
-        if: steps.window.outputs.skip != 'true'
-        env:
-          PROXY_SUBSCRIPTIONS: ${{ secrets.PROXY_SUBSCRIPTIONS }}
-        run: >-
-          python scripts/setup_proxy_runtime.py
-          --require-proxy
-          --test-url https://product.pconline.com.cn/notebook/s10.shtml
-
-      - name: Clamp step1 runtime to workflow budget
-        if: steps.window.outputs.skip != 'true'
-        run: python scripts/crawl_budget.py clamp --step-label step1 --skip-env STEP1_SKIP
-
-      - name: Crawl popularity ranking
-        id: step1
-        if: steps.window.outputs.skip != 'true'
-        run: >-
-          python scripts/ai_pconline_repair.py run-sandboxed
-          --out "$RUNNER_TEMP/ai-sandbox-out" --
-          python scripts/crawl_pconline.py
-          --output /out/latest.json
-          --time-limit "$RUN_TIME"
-          --max-items "$MAX_ITEMS"
-          --min-records 50
-
-      - name: Copy sandbox output
-        if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
-        run: >-
-          mkdir -p data/raw/pconline &&
-          test -s "$RUNNER_TEMP/ai-sandbox-out/latest.json" &&
-          cp "$RUNNER_TEMP/ai-sandbox-out/latest.json" data/raw/pconline/latest.json
-
-      - name: Clear crawler proxy environment
-        if: always()
-        run: python scripts/setup_proxy_runtime.py --clear
-
-      - name: Set artifact date
-        if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
-        id: date
-        run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
-
-      - name: Upload crawler data
-        if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
-        uses: actions/upload-artifact@main
-        with:
-          name: pconline-data-${{ steps.date.outputs.date }}
-          path: data/raw/pconline/latest.json
-          if-no-files-found: error
-          retention-days: 30
-"""
+SAFE_PCONLINE_WORKFLOW = repair.PCONLINE_WORKFLOW_TEMPLATE
 
 
 def write_pconline_workflow(tmp_path: Path, source: str) -> Path:
@@ -513,16 +373,12 @@ def test_new_workflow_guard_rejects_out_of_range_schedule(tmp_path):
 
 def test_new_workflow_guard_rejects_host_direct_crawler(tmp_path):
     unsafe = SAFE_PCONLINE_WORKFLOW.replace(
-        "          python scripts/ai_pconline_repair.py run-sandboxed\n"
-        "          --out \"$RUNNER_TEMP/ai-sandbox-out\" --\n"
-        "          python scripts/crawl_pconline.py\n",
-        "          python scripts/crawl_pconline.py\n",
+        "python scripts/ai_pconline_repair.py run-sandboxed",
+        "python scripts/crawl_pconline.py",
         1,
     ).replace(
-        "--time-limit \"$RUN_TIME\"\n"
-        "          --max-items \"$MAX_ITEMS\"\n"
-        "          --min-records 50",
-        "--pages 5 --max-items 120 --min-records 50",
+        "--time-limit \"$RUN_TIME\"",
+        "--pages 5 --max-items 120",
         1,
     )
     with pytest.raises(ValueError, match="time-limit and max-items"):

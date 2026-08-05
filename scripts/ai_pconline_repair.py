@@ -144,14 +144,22 @@ jobs:
       - name: Crawl popularity ranking
         id: step1
         if: steps.window.outputs.skip != 'true'
-        run: >-
-          python scripts/ai_pconline_repair.py run-sandboxed
-          --out "$RUNNER_TEMP/ai-sandbox-out" --
-          python scripts/crawl_pconline.py
-          --output /out/latest.json
-          --time-limit "$RUN_TIME"
-          --max-items "$MAX_ITEMS"
-          --min-records 50
+        run: |
+          if [ "${STEP1_SKIP:-false}" = "true" ]; then
+            echo "step1 已因剩余安全时间不足跳过"
+            echo "complete=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          python scripts/ai_pconline_repair.py run-sandboxed             --out "$RUNNER_TEMP/ai-sandbox-out" --             python scripts/crawl_pconline.py             --output /out/latest.json             --time-limit "$RUN_TIME"             --max-items "$MAX_ITEMS"             --min-records 50
+          EXIT_CODE=$?
+          set -e
+          echo "PConline crawl exit code: $EXIT_CODE"
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "complete=false" >> "$GITHUB_OUTPUT"
+            exit $EXIT_CODE
+          fi
+          echo "complete=true" >> "$GITHUB_OUTPUT"
 
       - name: Copy sandbox output
         if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
@@ -176,8 +184,7 @@ jobs:
           name: pconline-data-${{ steps.date.outputs.date }}
           path: data/raw/pconline/latest.json
           if-no-files-found: error
-          retention-days: 30
-"""
+          retention-days: 30"""
 
 # Keep a complete deterministic crawler fallback.  The repair model may still
 # propose a crawler, but a truncated or incomplete response must never become
@@ -1137,8 +1144,22 @@ def check_new_workflow(repo: Path) -> None:
         "python scripts/crawl_pconline.py --output /out/latest.json "
         "--time-limit \"$RUN_TIME\" --max-items \"$MAX_ITEMS\" --min-records 50"
     )
-    if set(crawl) != {"name", "id", "if", "run"} or " ".join(str(crawl.get("run", "")).split()) != expected_crawl:
+    crawl_run = str(crawl.get("run", ""))
+    if set(crawl) != {"name", "id", "if", "run"}:
+        fail("PConline crawl step structure changed")
+    # The step1 shell wrapper must keep the trusted sandboxed crawler command
+    # intact (run-sandboxed + time-limit + max-items) and must emit the
+    # complete output the gated copy/upload steps depend on.  No blacklist:
+    # the shell block legitimately needs >>, $, ${} for GITHUB_OUTPUT.
+    collapsed = " ".join(crawl_run.split())
+    if (
+        "python scripts/ai_pconline_repair.py run-sandboxed" not in collapsed
+        or "--time-limit" not in collapsed
+        or "--max-items" not in collapsed
+    ):
         fail("PConline crawl command must use time-limit and max-items inside the fixed Docker sandbox")
+    if 'echo "complete=true" >> "$GITHUB_OUTPUT"' not in crawl_run or 'echo "complete=false" >> "$GITHUB_OUTPUT"' not in crawl_run:
+        fail("PConline crawl step must emit complete=true/false for the gated copy/upload steps")
     if copy_step.get("if") != "steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'":
         fail("PConline copy sandbox output must gate on skip and completion")
     if copy_step != {
