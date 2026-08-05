@@ -9,7 +9,7 @@
 每条 fact 含 series/size_inch 匹配键，merge_data.py 用它们在爬虫证据
 缺失时按 "系列+尺寸" 精确匹配补键盘事实（型号级事实，非猜测）。
 
-用法: python scripts/crawl_keyboard_facts.py --output data/keyboard_facts.json
+用法: python scripts/crawl_keyboard_facts.py --output config/keyboard_facts.json
 """
 from __future__ import annotations
 
@@ -246,7 +246,7 @@ def merge_duplicate_facts(facts: list[dict]) -> list[dict]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", default="data/keyboard_facts.json")
+    parser.add_argument("--output", default="config/keyboard_facts.json")
     parser.add_argument("--sources", default="hp,mechrevo", help="逗号分隔: hp,mechrevo")
     args = parser.parse_args()
 

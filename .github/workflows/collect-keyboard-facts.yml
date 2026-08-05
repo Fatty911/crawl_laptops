@@ -28,7 +28,7 @@ jobs:
 
       - name: Collect keyboard facts
         run: |
-          python scripts/crawl_keyboard_facts.py --output data/keyboard_facts.json
+          python scripts/crawl_keyboard_facts.py --output config/keyboard_facts.json
 
       - name: Commit facts if changed
         env:
@@ -36,7 +36,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "xuerui911@gmail.com"
-          git add data/keyboard_facts.json
+          git add config/keyboard_facts.json
           if git diff --cached --quiet; then
             echo "facts unchanged"
           else

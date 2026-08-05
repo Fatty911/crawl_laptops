@@ -135,7 +135,7 @@ def clean_jd_title_identity(title: Any) -> str:
     return cleaned or original
 
 
-KEYBOARD_FACTS_PATH = Path(__file__).resolve().parent.parent / "data" / "keyboard_facts.json"
+KEYBOARD_FACTS_PATH = Path(__file__).resolve().parent.parent / "config" / "keyboard_facts.json"
 
 
 def load_keyboard_facts(path: str | Path = KEYBOARD_FACTS_PATH) -> list[dict]:
