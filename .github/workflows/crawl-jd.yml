@@ -35,10 +35,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RUN_TIME: 7200
-  MORNING_RUN_TIME: 7200
-  AFTERNOON_RUN_TIME: 10800
-  MAX_WORKFLOW_SECONDS: 10800
+  RUN_TIME: 10800
+  MORNING_RUN_TIME: 10800
+  AFTERNOON_RUN_TIME: 21600
+  MAX_WORKFLOW_SECONDS: 21600
   PROGRESS_COMMIT_BUFFER_SECONDS: 1800
   WINDOW_END_BUFFER_SECONDS: 900
   MAX_PAGES: 0
@@ -48,7 +48,7 @@ env:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 390
     steps:
       - name: Checkout
         uses: actions/checkout@main
