@@ -101,7 +101,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: crawl-source
+  group: pconline-crawl-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

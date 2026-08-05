@@ -50,7 +50,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: crawl-source
+  group: pconline-crawl-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -980,8 +980,8 @@ def check_new_workflow(repo: Path) -> None:
             fail("PConline workflow schedule is not a controlled daily/weekly cron")
     if workflow.get("permissions") != {"contents": "read"}:
         fail("PConline workflow permissions must be contents:read only")
-    if workflow.get("concurrency") != {"group": "crawl-source", "cancel-in-progress": False}:
-        fail("PConline workflow must share the non-cancelling crawler lock")
+    if workflow.get("concurrency") != {"group": "pconline-crawl-${{ github.ref }}", "cancel-in-progress": False}:
+        fail("PConline workflow must use its own non-cancelling concurrency group")
     jobs = workflow.get("jobs")
     if not isinstance(jobs, dict) or set(jobs) != {"crawl"}:
         fail("PConline workflow must contain only the controlled crawl job")
