@@ -35,6 +35,13 @@ jobs:
           python -m compileall -q scripts tests
           python scripts/validate_storage_policy.py
           python scripts/validate_plan_agent_boundary.py
+      - name: Validate syntax of workflows, scripts, and docs
+        run: >-
+          python scripts/validate_syntax.py
+          .github/workflows/*.yml
+          scripts/*.py
+          docs/*.html docs/*.js docs/*.css
+
       - name: Check patch whitespace
         env:
           EVENT_NAME: ${{ github.event_name }}
