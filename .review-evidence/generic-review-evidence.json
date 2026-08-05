@@ -1,9 +1,0 @@
-{
- "tool": "opencode-export-fixed",
- "provider_id": "volcengine-coding",
- "model_id": "kimi-k2.7-code",
- "reasoning_effort": null,
- "session_id": "direct-api-review-facts-move",
- "session_path": "/tmp/review6_transcript.json",
- "output_path": "/tmp/review6_out.txt"
-}
