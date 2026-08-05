@@ -120,8 +120,8 @@ def check_long_running_crawler(path: Path, errors: list[str]) -> None:
 
     # Timeout
     assert_condition(
-        "timeout-minutes: 240" in text,
-        f"{name} should have 240min timeout",
+        "timeout-minutes: 390" in text,
+        f"{name} should have 390min timeout",
         errors,
     )
 
