@@ -40,14 +40,23 @@ def test_source_schedules_include_staggered_daily_shanghai_afternoon_runs():
         assert "Scheduled workflows run from the default branch (main)." in text
 
 
-def test_source_workflows_share_non_cancelling_concurrency_lock():
+def test_source_workflows_use_independent_non_cancelling_concurrency_groups():
+    # A shared concurrency group cancels pending siblings when the external
+    # trigger dispatches all sources back to back; every source must own its
+    # group, matching the crawl_cars/crawl_phones naming.
+    expected = {
+        "crawl-zol.yml": "zol-crawl-${{ github.ref }}",
+        "crawl-jd.yml": "jd-crawl-${{ github.ref }}",
+        "crawl-pconline.yml": "pconline-crawl-${{ github.ref }}",
+    }
     groups = set()
-    for name in ("crawl-zol.yml", "crawl-jd.yml"):
+    for name, group in expected.items():
         _, workflow = load_workflow(name)
-        groups.add(workflow["concurrency"]["group"])
+        assert workflow["concurrency"]["group"] == group
         assert workflow["concurrency"]["cancel-in-progress"] is False
+        groups.add(group)
 
-    assert groups == {"crawl-source"}
+    assert len(groups) == 3
 
 
 def test_merge_only_runs_for_successful_source_completion_or_manual_dispatch():

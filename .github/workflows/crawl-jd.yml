@@ -31,7 +31,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: crawl-source
+  group: jd-crawl-${{ github.ref }}
   cancel-in-progress: false
 
 env:
