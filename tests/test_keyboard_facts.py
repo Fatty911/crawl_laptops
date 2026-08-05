@@ -46,6 +46,14 @@ def _facts() -> list[dict]:
             "source": "mechrevo-official",
             "numeric_keypad": True, "keyboard_backlight": None,
         },
+        {
+            "model": "惠普 (HP) HyperX 暗影精灵 PRO 16英寸游戏笔记本电脑",
+            "series": "暗影精灵", "size_inch": "16英寸",
+            "page_url": "https://www.hpstore.cn/hyperx-16-16-ap1026ax-dn8j7pa.html",
+            "keyboard_text": "带数字小键盘的全尺寸暗影黑键盘，4 个区域点亮 RGB 背光",
+            "source": "hp-official",
+            "numeric_keypad": True, "keyboard_backlight": True,
+        },
     ]
 
 
@@ -60,6 +68,21 @@ def test_keyboard_fact_for_exact_series_size():
     # 暗影精灵 PRO
     f_omen = merge_data.keyboard_fact_for("惠普HyperX 暗影精灵PRO 15.3英寸游戏本", facts)
     assert f_omen is not None and f_omen["numeric_keypad"] is True
+
+
+def test_keyboard_fact_for_suffix_size_form_and_normalized_series():
+    facts = _facts()
+    # 暗影精灵 Pro 16酷睿版（标题无"英寸"字样，系列带空格+后缀）→ 官网 16 英寸事实
+    f = merge_data.keyboard_fact_for(
+        "惠普HyperX 暗影精灵 Pro 16酷睿版 (Ultra7 270HX Plus/16GB/1TB/RTX5060)", facts
+    )
+    assert f is not None and f["numeric_keypad"] is True and f["keyboard_backlight"] is True
+    # 机械革命苍龙 16 Ultra（"16 Ultra" 尺寸写法）
+    f2 = merge_data.keyboard_fact_for("机械革命苍龙 16 Ultra", facts)
+    assert f2 is not None and f2["numeric_keypad"] is True
+    # CPU 型号数字不应被误判为尺寸（Ultra7 270HX 不是尺寸）
+    f3 = merge_data.keyboard_fact_for("惠普(HP)战66 八代 17英寸笔记本", facts)
+    assert f3 is None
 
 
 def test_keyboard_fact_for_size_mismatch_returns_none():

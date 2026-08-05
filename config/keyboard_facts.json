@@ -1,5 +1,36 @@
 [
   {
+    "model": "惠普 (HP) 星Book Pro Air 14英寸 AI 笔记本电脑 ku0024TU",
+    "series": "星Book",
+    "size_inch": "14英寸",
+    "page_url": "https://www.hpstore.cn/hp-omnibook-7-laptop-ai-14-ku0024tu-dk8g9pa.html",
+    "keyboard_text": "全尺寸背光深流星银色不透明键盘",
+    "source": "hp-official",
+    "numeric_keypad": null,
+    "keyboard_backlight": true,
+    "page_urls": [
+      "https://www.hpstore.cn/hp-omnibook-7-laptop-ai-14-ku0024tu-dk8g9pa.html",
+      "https://www.hpstore.cn/hp-omnibook-7-laptop-ai-14-ku0023tu-dk8g8pa.html",
+      "https://www.hpstore.cn/book-x-flip-ai-14-kb0004tu-d44qqpa.html"
+    ]
+  },
+  {
+    "model": "惠普 (HP) HyperX 暗影精灵 PRO 16英寸游戏笔记本电脑 ap1026AX",
+    "series": "暗影精灵",
+    "size_inch": "16英寸",
+    "page_url": "https://www.hpstore.cn/hyperx-16-16-ap1026ax-dn8j7pa.html",
+    "keyboard_text": "带数字小键盘的全尺寸暗影黑键盘，4区 RGB 背光",
+    "source": "hp-official",
+    "numeric_keypad": true,
+    "keyboard_backlight": true,
+    "page_urls": [
+      "https://www.hpstore.cn/hyperx-16-16-ap1026ax-dn8j7pa.html",
+      "https://www.hpstore.cn/hp-omen-16-inch-gaming-laptop-am2073tx-dc0e9pa.html",
+      "https://www.hpstore.cn/hyperx-16-16-am2129tx-dp3v8pa.html",
+      "https://www.hpstore.cn/hp-omen-16-inch-gaming-laptop-ap1025ax-dc0f0pa.html"
+    ]
+  },
+  {
     "model": "惠普 (HP) 战66 八代 16英寸商务笔记本电脑",
     "series": "战66",
     "size_inch": "16英寸",
@@ -12,6 +43,16 @@
       "https://www.hpstore.cn/hp-probook-4-g1ah-16-inch-notebook-pc-d89wqpc.html",
       "https://www.hpstore.cn/hp-probook-4-g1ah-16-inch-notebook-pc-d89wspc.html"
     ]
+  },
+  {
+    "model": "惠普 (HP) HyperX 暗影精灵MAX 16英寸游戏笔记本电脑 ah1028TX",
+    "series": "暗影精灵MAX",
+    "size_inch": "16英寸",
+    "page_url": "https://www.hpstore.cn/hp-omen-max-16-inch-gaming-laptop-ah1028tx-db2q3pa.html",
+    "keyboard_text": "带数字小键盘的全尺寸暗影黑键盘，单键可调 RGB 背光",
+    "source": "hp-official",
+    "numeric_keypad": true,
+    "keyboard_backlight": true
   },
   {
     "model": "惠普(HP) 战X 14英寸商务笔记本电脑",
@@ -32,6 +73,30 @@
     "source": "hp-official",
     "numeric_keypad": null,
     "keyboard_backlight": true
+  },
+  {
+    "model": "惠普 (HP) HyperX 暗影精灵 PRO 15.3英寸游戏笔记本电脑 ga0151TX",
+    "series": "暗影精灵",
+    "size_inch": "15.3英寸",
+    "page_url": "https://www.hpstore.cn/hyperx-15-15-ga0151tx-dc2k5pa.html",
+    "keyboard_text": "带数字小键盘的全尺寸暗影黑键盘，单区背光",
+    "source": "hp-official",
+    "numeric_keypad": true,
+    "keyboard_backlight": true
+  },
+  {
+    "model": "惠普 (HP) 星Book 16英寸 AI 笔记本电脑 bu0153TU",
+    "series": "星Book",
+    "size_inch": "16英寸",
+    "page_url": "https://www.hpstore.cn/book-3-16-bu0153tu-d41u0pa.html",
+    "keyboard_text": "带数字小键盘的全尺寸背光柔灰色键盘",
+    "source": "hp-official",
+    "numeric_keypad": true,
+    "keyboard_backlight": true,
+    "page_urls": [
+      "https://www.hpstore.cn/book-3-16-bu0153tu-d41u0pa.html",
+      "https://www.hpstore.cn/book-pro-ai-16-bh0093tu-d44p6pa.html"
+    ]
   },
   {
     "model": "惠普 (HP) HyperX 暗影精灵PRO 15.3英寸游戏笔记本电脑 ga0150TX",

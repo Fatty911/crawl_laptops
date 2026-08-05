@@ -27,6 +27,12 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 HP_LIST_URLS = [
     "https://www.hpstore.cn/notebooks.html",
     "https://www.hpstore.cn/laptops.html",
+    "https://www.hpstore.cn/personal-laptops.html",
+    "https://www.hpstore.cn/business-laptops.html",
+    "https://www.hpstore.cn/laptop-gaming.html",
+    "https://www.hpstore.cn/omen-laptops.html",
+    "https://www.hpstore.cn/hp-zhan66.html",
+    "https://www.hpstore.cn/hp-zhanx.html",
 ]
 
 MECHREVO_HOME = "https://www.mechrevo.com/cn/"
@@ -128,8 +134,18 @@ def crawl_hp() -> list[dict]:
         except Exception as exc:
             print(f"[hp] list {list_url} failed: {type(exc).__name__} {exc}", file=sys.stderr)
             continue
-        links = re.findall(r'href="(https://www\.hpstore\.cn/[^"]*(?:notebook|pc)[^"]*\.html)"', html)
+        # 产品页：slug 含型号编码（数字），排除分类页（以 -laptops.html 等结尾）
+        links = re.findall(r'href="(https://www\.hpstore\.cn/[^"]*\.html)"', html)
         for link in dict.fromkeys(links):
+            slug = link.split("/")[-1]
+            if slug.endswith(("-laptops.html", "-desktops.html", "-monitors.html",
+                              "-printers.html", "-tablets.html", "-accessories.html",
+                              "-promotions.html", "-scanners.html", "-keyboards.html",
+                              "-mice.html", "-docks.html", "-webcams.html",
+                              "-speakers.html", "-cases-sleeves.html", "-batteries-chargers-adapters.html")):
+                continue
+            if not any(c.isdigit() for c in slug):
+                continue
             if link not in seen:
                 seen.add(link)
                 product_links.append(link)

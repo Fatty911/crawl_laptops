@@ -149,29 +149,58 @@ def load_keyboard_facts(path: str | Path = KEYBOARD_FACTS_PATH) -> list[dict]:
 def _title_series_size(title: str) -> tuple[str, str]:
     """从爬虫标题提取系列词与尺寸，用于事实表匹配（与采集脚本同一套规则）。"""
     text = str(title or "")
+
+    def _plausible(match: "re.Match") -> str:
+        try:
+            value = float(match.group(1))
+        except (TypeError, ValueError):
+            return ""
+        return f"{match.group(1)}英寸" if 10 <= value <= 18 else ""
+
     size_m = re.search(r"(\d+(?:\.\d+)?)\s*(?:英?寸|英寸|inch|吋)", text, re.I)
-    size = f"{size_m.group(1)}英寸" if size_m else ""
-    return text, size
+    if size_m:
+        size = _plausible(size_m)
+        if size:
+            return text, size
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?=(?:酷睿版|锐龙版|Ultra|Pro|Plus|Max|AI|游戏本|商务本)\b)", text, re.I):
+        size = _plausible(m)
+        if size:
+            return text, size
+    return text, ""
+
+
+def _normalize_series(text: str) -> str:
+    """系列名归一化：去空格/大小写/常见尺寸与后缀，用于宽松匹配。
+
+    例：'暗影精灵 Pro 16酷睿版' -> '暗影精灵pro'；'暗影精灵PRO' -> '暗影精灵pro'。
+    """
+    lowered = re.sub(r"\s+", "", str(text or ""), flags=re.I).lower()
+    lowered = re.sub(r"\d+(?:\.\d+)?英?寸?", "", lowered)
+    for tail in ("酷睿版", "锐龙版", "pro", "ultra", "plus", "max", "ai", "游戏本", "商务本"):
+        if lowered.endswith(tail):
+            lowered = lowered[: -len(tail)]
+    return lowered
 
 
 def keyboard_fact_for(title: str, facts: list[dict] | None = None) -> dict | None:
     """按 系列+尺寸 匹配官网键盘事实。
 
-    匹配规则：title 必须同时包含事实的 series 与 size_inch（尺寸非空时）。
-    返回匹配的事实 dict；无匹配返回 None。
+    匹配规则：归一化后 title 必须包含事实的 series（去空格/大小写/尺寸后缀），
+    尺寸非空时 title 尺寸与事实尺寸一致。返回匹配的事实 dict；无匹配返回 None。
     """
     if facts is None:
         facts = load_keyboard_facts()
     if not facts or not title:
         return None
     text, size = _title_series_size(title)
+    norm_text = _normalize_series(text)
     best: dict | None = None
     for fact in facts:
         series = str(fact.get("series") or "")
         fact_size = str(fact.get("size_inch") or "")
         if not series:
             continue
-        if series not in text:
+        if _normalize_series(series) not in norm_text:
             continue
         if fact_size and fact_size != size:
             continue
