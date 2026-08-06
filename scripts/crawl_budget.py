@@ -82,6 +82,7 @@ def configure(args: argparse.Namespace) -> int:
     append_line(args.github_env, f"RUN_PROFILE={profile}")
     append_line(args.github_env, f"RUN_TIME={run_seconds}")
     append_line(args.github_output, "skip=false")
+    append_line(args.github_output, f"run_profile={profile}")
     print(f"Profile={profile}, RUN_TIME={run_seconds}s, Beijing time={now:%H:%M:%S}")
     return 0
 
