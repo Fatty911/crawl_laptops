@@ -344,8 +344,14 @@ def main() -> int:
         )
     proxy_config = Path(args.proxy_config)
     clash_config = Path(args.clash_config)
+    health_check_url = os.environ.get(
+        "HEALTH_CHECK_URL",
+        f"https://{urlparse(args.test_url[0]).netloc}/"
+        if args.test_url
+        else "https://www.baidu.com/",
+    )
     write_runtime_files(
-        proxy_config, clash_config, subscriptions, excluded, proxies
+        proxy_config, clash_config, subscriptions, excluded, proxies, health_check_url
     )
     mihomo = find_mihomo(Path(args.bin_dir)) or download_mihomo(
         Path(args.bin_dir)
