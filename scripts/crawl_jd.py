@@ -399,6 +399,20 @@ def crawl_incremental(
         for record in read_jsonl(enriched_path)
         if item_key(record)
     }
+    if progress.scan_complete:
+        # 榜单每日变化：上次完整跑完的进度已过期，本次运行重新扫描。
+        print(
+            "previous scan complete; restarting scan for fresh ranking",
+            file=sys.stderr,
+        )
+        progress.scan_complete = False
+        progress.current_page = 1
+        progress.total_items = 0
+        progress.processed_ids = []
+        progress.save(state_dir)
+        items = []
+        items_path.write_text("", encoding="utf-8")
+        enriched_path.write_text("", encoding="utf-8")
     session = make_session(cookie)
     session.headers["Referer"] = "https://www.jd.com/"
     risk_seen = False

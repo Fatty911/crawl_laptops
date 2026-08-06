@@ -30,8 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      MORNING_RUN_TIME: 7200
-      AFTERNOON_RUN_TIME: 10800
+      MORNING_RUN_TIME: 10800
+      AFTERNOON_RUN_TIME: 21600
       WINDOW_END_BUFFER_SECONDS: 900
     steps:
       - name: Checkout

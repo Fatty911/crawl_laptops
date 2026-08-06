@@ -51,12 +51,15 @@ def test_zol_incremental_scan_and_resume(tmp_path, monkeypatch):
     assert progress.scan_complete is True
     assert progress.total_items == 2
 
-    # A resumed run after completion must not fetch anything again.
+    # A resumed run after completion must restart the scan: the ranking
+    # changes daily, so a completed cursor is stale and must not be reused.
     exit_code = zol.crawl_incremental(
         str(output), str(progress_dir), 0.0, min_records=1, time_limit=0, max_pages=0
     )
     assert exit_code == 0
-    assert fetched == [1, 2]
+    assert fetched == [1, 2, 1, 2]
+    progress = Progress.load(progress_dir)
+    assert progress.scan_complete is True
 
 
 def test_zol_incremental_respects_time_budget(tmp_path, monkeypatch):

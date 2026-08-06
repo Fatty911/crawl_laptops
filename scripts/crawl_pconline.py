@@ -234,7 +234,7 @@ def main() -> int:
         help="wall-clock budget in seconds (0 = unlimited)",
     )
     args = parser.parse_args()
-    if args.pages < 1 or args.max_items < 1 or args.min_records < 1:
+    if args.pages < 1 or args.max_items < 0 or args.min_records < 1:
         print("PConline CLI limits must be positive", file=sys.stderr)
         return 2
     try:
