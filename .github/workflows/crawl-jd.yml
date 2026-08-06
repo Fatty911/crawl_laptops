@@ -136,7 +136,14 @@ jobs:
             git add -f crawl_state/jd/
             git diff --cached --quiet || git commit -m "chore: update JD crawl progress [skip ci]"
             bash scripts/git_sync_progress.sh "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-            echo "complete=false" >> "$GITHUB_OUTPUT"
+            # 部分完成但已有足够数据：也上传 artifact（min_records 由下载端保证）
+            if [ -s data/raw/jd/latest.json ] && [ "$(python3 -c "import json;print(len(json.load(open('data/raw/jd/latest.json',encoding='utf-8'))))" 2>/dev/null)" -ge 50 ]; then
+              echo "部分数据已满足发布下限，上传 artifact"
+              echo "complete=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "数据不足 50 条，本次不上传"
+              echo "complete=false" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           elif [ $EXIT_CODE -ne 0 ]; then
             echo "complete=false" >> "$GITHUB_OUTPUT"
