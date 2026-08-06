@@ -3,6 +3,6 @@
  "provider_id": "deepseek",
  "model_id": "deepseek-v4-flash",
  "reasoning_effort": "max",
- "session_id": "20260806_crawl_fix",
+ "session_id": "20260806_trigger_fix",
  "session_path": "/root/crawl_laptops_fix/main-session-evidence.jsonl"
 }

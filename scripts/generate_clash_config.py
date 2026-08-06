@@ -497,6 +497,7 @@ class ClashConfigGenerator:
         mixed_port: int = 7890,
         socks_port: int = 7891,
         external_controller: str = "127.0.0.1:9090",
+        health_check_url: str = "https://www.baidu.com/",
     ) -> str:
         cleaned = [self._sanitize(proxy) for proxy in proxies]
         names = [str(proxy["name"]) for proxy in cleaned]
@@ -520,12 +521,12 @@ class ClashConfigGenerator:
                     "name": "BALANCE",
                     "type": "load-balance",
                     "proxies": names,
-                    "url": "https://www.baidu.com/",
+                    "url": health_check_url,
                     "interval": 60,
                     "strategy": "round-robin",
                     "health-check": {
                         "enable": True,
-                        "url": "https://www.baidu.com/",
+                        "url": health_check_url,
                         "interval": 60,
                     },
                 },

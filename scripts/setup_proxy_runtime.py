@@ -236,8 +236,17 @@ def write_runtime_files(
         encoding="utf-8",
     )
     generator = ClashConfigGenerator(str(clash_config))
+    health_check_url = os.environ.get(
+        "HEALTH_CHECK_URL",
+        f"https://{urlparse(args.test_url[0]).netloc}/"
+        if args.test_url
+        else "https://www.baidu.com/",
+    )
     generator.save_config(
-        generator.generate_config_from_proxies(proxies), str(clash_config)
+        generator.generate_config_from_proxies(
+            proxies, health_check_url=health_check_url
+        ),
+        str(clash_config),
     )
 
 

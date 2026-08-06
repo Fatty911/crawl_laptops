@@ -3,7 +3,7 @@
  "provider_id": "volcengine-coding",
  "model_id": "kimi-k2.7-code",
  "reasoning_effort": null,
- "session_id": "direct-api-review-crawl-fix",
- "session_path": "/tmp/r10.json",
- "output_path": "/tmp/r10.txt"
+ "session_id": "direct-api-review-trigger-fix2",
+ "session_path": "/tmp/r11.json",
+ "output_path": "/tmp/r11.txt"
 }
