@@ -143,6 +143,5 @@ jobs:
         if: steps.mse_agent.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.ACTION_PAT || github.token }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           python scripts/mse_repair_runner.py --patch-file mse_patch_out.json
