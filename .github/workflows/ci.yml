@@ -35,6 +35,7 @@ jobs:
           python -m compileall -q scripts tests
           python scripts/validate_storage_policy.py
           python scripts/validate_plan_agent_boundary.py
+          python scripts/scan_direct_llm_calls.py scripts .github
       - name: Validate syntax of workflows, scripts, and docs
         run: >-
           python scripts/validate_syntax.py

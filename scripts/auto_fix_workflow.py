@@ -15,6 +15,7 @@ import json
 import subprocess
 import requests
 import re
+import tempfile
 from typing import Optional, Dict, List
 
 PROVIDER_BASE_URLS = {
@@ -236,47 +237,79 @@ class WorkflowErrorFixer:
 
     def _call_model(self, provider: Dict, model: str, error_info: str, context: str) -> Optional[str]:
         prompt = f"分析以下GitHub Actions错误:\n{error_info}\n\n仓库上下文:\n{context}\n\n【AI防幻觉与打分机制】请在修复前确保逻辑正确，不可凭空假设API和类库，务必联网检索确定。若产生幻觉将在下次被扣分。\n用JSON回复(包含 files_to_modify, commands, reasoning, confidence)。格式严格。"
-        url = f"{provider['base_url']}/chat/completions"
-        headers = { "Content-Type": "application/json", "Authorization": f"Bearer {provider['api_key']}" }
-        if provider["prefix"] == "OPENROUTER":
-            headers["HTTP-Referer"] = "https://github.com/Fatty911"
-            headers["X-Title"] = "Auto Fixer"
-
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": "你是资深的 DevOps 工程师，专门通过修改代码或执行命令修复构建流错误。"},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.1,
-            "max_tokens": 8000
+        # 通过 OpenCode CLI（Agent 工具）调用模型，禁止直连模型 API。
+        # The provider key is consumed only by the OpenCode process.
+        read_only = {
+            "*": "deny",
+            "read": "allow",
+            "edit": "deny",
+            "bash": "deny",
+            "webfetch": "deny",
+            "task": "deny",
+            "question": "deny",
+            "external_directory": "deny",
         }
-        
+        provider_label = re.sub(r"[^A-Za-z0-9_-]", "-", str(provider["prefix"]).lower())[:60]
+        base_url = str(provider["base_url"]).rstrip("/")
+        config = {
+            "provider": {
+                provider_label: {
+                    "npm": "@ai-sdk/openai-compatible",
+                    "name": provider_label,
+                    "options": {"baseURL": base_url, "apiKey": provider["api_key"]},
+                    "models": {model: {"limit": {"context": 131072, "output": 8192}}},
+                }
+            },
+            "agent": {"plan": {"permission": read_only}},
+            "permission": read_only,
+        }
+        env = dict(os.environ)
+        env["OPENCODE_CONFIG_CONTENT"] = json.dumps(config, ensure_ascii=False)
+        env["OPENCODE_DISABLE_AUTOUPDATE"] = "1"
+        env["OPENCODE_DISABLE_TELEMETRY"] = "1"
+        if provider.get("proxies"):
+            proxy = provider["proxies"].get("https") or provider["proxies"].get("http")
+            if proxy:
+                env["NODE_USE_ENV_PROXY"] = "1"
+                env["HTTPS_PROXY"] = proxy
+                env["HTTP_PROXY"] = proxy
+        opencode_bin = os.environ.get("OPENCODE_BIN", "opencode")
         try:
-            request_kwargs = {"json": payload, "headers": headers, "timeout": 120}
-            if provider.get("proxies"):
-                request_kwargs["proxies"] = provider["proxies"]
-            r = requests.post(url, **request_kwargs)
-            if r.status_code == 429:
-                self._last_call_kind = "rate_limited"
-            elif r.status_code in {401, 403}:
-                self._last_call_kind = "auth_error"
-            elif r.status_code in {400, 404, 409, 413, 422}:
-                self._last_call_kind = "request_error"
-            elif r.status_code >= 500:
-                self._last_call_kind = "availability_error"
-            else:
-                self._last_call_kind = "protocol_error"
-            if r.status_code == 200:
-                content = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                if content:
-                    self._last_call_kind = "success"
-                    return content
-                self._last_call_kind = "protocol_error"
-            print(f"    ✗ 失败 HTTP {r.status_code}")
+            with tempfile.TemporaryDirectory(prefix="autofix-") as tmpdir:
+                with open(os.path.join(tmpdir, "prompt.md"), "w", encoding="utf-8") as handle:
+                    handle.write(prompt)
+                cmd = [
+                    opencode_bin, "run", "--pure", "--agent", "plan",
+                    "--model", f"{provider_label}/{model}",
+                    "--format", "default",
+                    "--dir", tmpdir,
+                    "--file", "prompt.md",
+                    "Answer the attached prompt directly. Do not call tools or modify files. Return only the requested JSON.",
+                ]
+                completed = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
+        except FileNotFoundError:
+            self._last_call_kind = "availability_error"
+            print("    ✗ opencode CLI 不可用")
+            return None
         except Exception as e:
             self._last_call_kind = "availability_error"
             print(f"    ✗ 异常: {e}")
+            return None
+        if completed.returncode != 0:
+            combined = (completed.stderr or "") + (completed.stdout or "")
+            if re.search(r"\b429\b|rate.?limit|quota", combined, re.I):
+                self._last_call_kind = "rate_limited"
+            elif re.search(r"\b401\b|\b403\b|unauthorized|invalid api key", combined, re.I):
+                self._last_call_kind = "auth_error"
+            else:
+                self._last_call_kind = "availability_error"
+            print(f"    ✗ opencode exit {completed.returncode}")
+            return None
+        content = (completed.stdout or "").strip()
+        if content:
+            self._last_call_kind = "success"
+            return content
+        self._last_call_kind = "protocol_error"
         return None
 
     def _apply_fix(self, response: str, provider: str, model: str) -> bool:
@@ -312,7 +345,7 @@ class WorkflowErrorFixer:
             # === 推送前语法校验 ===
             print("    🔍 执行语法校验...")
             validate_result = subprocess.run(
-                ["python", "scripts/validate_syntax.py"],
+                ["python", "custom_scripts/validate_syntax.py"],
                 capture_output=True, text=True, timeout=60
             )
             if validate_result.returncode != 0:
