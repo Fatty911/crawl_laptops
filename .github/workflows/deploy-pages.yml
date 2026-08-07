@@ -12,6 +12,11 @@ on:
           - deploy_only
           - audit_only
         default: deploy_and_audit
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy-pages.yml'
   release:
     types: [published]
 

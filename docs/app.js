@@ -5,7 +5,7 @@
     items: [],
     filtered: [],
     config: null,
-    view: window.matchMedia("(max-width: 780px)").matches ? "cards" : "table",
+    view: localStorage.getItem("nb-view") || (window.matchMedia("(max-width: 780px)").matches ? "cards" : "table"),
     filters: {
       search: "",
       hideDedicated: true,
@@ -238,8 +238,8 @@
   }
 
   function setView(view) {
-    if (window.matchMedia("(max-width: 780px)").matches && view === "table") view = "cards";
     state.view = view;
+    try { localStorage.setItem("nb-view", view); } catch (e) { /* private mode */ }
     document.querySelectorAll("[data-view]").forEach((button) =>
       button.classList.toggle("is-active", button.dataset.view === view));
     renderResults();
