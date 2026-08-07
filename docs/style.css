@@ -383,6 +383,11 @@ tbody tr.multi-source { box-shadow: inset 3px 0 var(--acid); }
 }
 .source-badges.multi .source-badge { border-color: #b5cf35; background: var(--acid); }
 
+/* HTML hidden 属性必须始终隐藏，防止 display 规则覆盖 */
+[hidden] {
+  display: none !important;
+}
+
 .card-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
