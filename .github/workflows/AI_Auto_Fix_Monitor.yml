@@ -170,20 +170,13 @@ jobs:
             fi
           fi
 
-      - name: Attempt self-repair
+      - name: Prepare repair prompt
+        id: repair_prompt
         if: >-
-          always() &&
           steps.classify.outputs.should_diagnose == 'true' &&
           (steps.classify.outputs.classification == 'site_breakage' ||
            steps.classify.outputs.classification == 'unknown')
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.ACTION_PAT || github.token }}
-          KIMI_CODINGPLAN_API_KEY: ${{ secrets.KIMI_CODINGPLAN_API_KEY }}
-          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
         run: |-
-          set +e
-          # 失败日志摘录（诊断已下载）
           EXCERPT=""
           if [ -s workflow_error.log ]; then
             EXCERPT="$(head -c 8000 workflow_error.log)"
@@ -192,21 +185,55 @@ jobs:
           fi
           if [ -z "$EXCERPT" ]; then
             echo "无失败日志，跳过自修复"
-            echo "self_repair_status=no_logs" >> "$GITHUB_OUTPUT"
+            echo "should_repair=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "should_repair=true" >> "$GITHUB_OUTPUT"
           echo "$EXCERPT" > self_repair_excerpt.txt
+          python scripts/self_repair_runner.py build-prompt             --log-excerpt "$EXCERPT"             --classification "${{ steps.classify.outputs.classification }}"             --reason "${{ steps.classify.outputs.reason }}"             --prompt-output prompt.md
+
+      - name: Set up Node.js for repair Agent
+        if: steps.repair_prompt.outputs.should_repair == 'true'
+        uses: actions/setup-node@main
+        with:
+          node-version: "22"
+
+      - name: Install fixed OpenCode CLI for repair Agent
+        if: steps.repair_prompt.outputs.should_repair == 'true'
+        run: npm install --global opencode-ai@1.18.11
+
+      - name: Prepare isolated repair Agent directory
+        if: steps.repair_prompt.outputs.should_repair == 'true'
+        run: mkdir -p "$RUNNER_TEMP/opencode-agent"
+
+      - name: Repair Agent
+        id: repair_agent
+        if: steps.repair_prompt.outputs.should_repair == 'true'
+        continue-on-error: true
+        env:
+          KIMI_CODINGPLAN_API_KEY: ${{ secrets.KIMI_CODINGPLAN_API_KEY }}
+          OPENCODE_CONFIG_CONTENT: >-
+            {"autoupdate":false,"provider":{"kimi-coding-plan":{"npm":"@ai-sdk/openai-compatible","name":"Kimi Coding Plan","options":{"baseURL":"https://api.kimi.com/coding/v1","apiKey":"{env:KIMI_CODINGPLAN_API_KEY}"},"models":{"kimi-k2.6":{"limit":{"context":262144,"output":32768}}}}},"agent":{"plan":{"model":"kimi-coding-plan/kimi-k2.6","permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}},"permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}
+        run: >-
+          opencode run --pure --agent plan --model kimi-coding-plan/kimi-k2.6 --format default --dir "$RUNNER_TEMP/opencode-agent" --file prompt.md "Return one JSON object with exactly these top-level fields: patch, reasoning, confidence. Do not call tools or modify files." > repair_patch.json
+
+      - name: Apply and validate self-repair
+        id: self_repair
+        if: >-
+          steps.repair_prompt.outputs.should_repair == 'true' &&
+          steps.repair_agent.outcome == 'success'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTION_PAT || github.token }}
+          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+        run: |-
           case "${{ env.WORKFLOW_NAME }}" in
             "Crawl ZOL") WF_FILE="crawl-zol.yml" ;;
             "Crawl JD") WF_FILE="crawl-jd.yml" ;;
             "Crawl PConline") WF_FILE="crawl-pconline.yml" ;;
             *) WF_FILE="crawl-zol.yml" ;;
           esac
-          echo "self_repair_wf=$WF_FILE" >> "$GITHUB_ENV"
-          python scripts/self_repair_runner.py             --log-excerpt "$EXCERPT"             --classification "${{ steps.classify.outputs.classification }}"             --reason "${{ steps.classify.outputs.reason }}"             --workflow-name "${{ env.WORKFLOW_NAME }}"             --workflow-file "$WF_FILE"             --run-id "${{ env.WORKFLOW_RUN_ID }}"             --attempt-marker "self-repair-${{ env.WORKFLOW_RUN_ID }}-${{ env.WORKFLOW_HEAD_SHA }}"
-          SELF_REPAIR_EXIT=$?
-          set -e
-          echo "self_repair_status=$([ $SELF_REPAIR_EXIT -eq 0 ] && echo committed || echo not_committed)" >> "$GITHUB_OUTPUT"
+          python scripts/self_repair_runner.py             --patch-file repair_patch.json             --classification "${{ steps.classify.outputs.classification }}"             --reason "${{ steps.classify.outputs.reason }}"             --workflow-name "${{ env.WORKFLOW_NAME }}"             --workflow-file "$WF_FILE"             --run-id "${{ env.WORKFLOW_RUN_ID }}"             --attempt-marker "self-repair-${{ env.WORKFLOW_RUN_ID }}-${{ env.WORKFLOW_HEAD_SHA }}"
 
       - name: Report monitor result
         if: always()

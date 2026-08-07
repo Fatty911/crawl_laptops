@@ -44,31 +44,24 @@ REVIEW_TRAILER_RESULT_1 = "Review-Result-1"
 REVIEW_TRAILER_RESULT_2 = "Review-Result-2"
 REVIEW_TRAILER_DIFF = "Reviewed-Diff-SHA256"
 
-# Provider endpoints for review. Per user model-tier rule (2026-08-06):
-# review models must be more expensive than deepseek-v4-flash / gpt-5.6-luna,
-# and must be from two different families.
+# Review providers: two different families, both more expensive than the
+# main models (deepseek-v4-flash / gpt-5.6-luna), via NIM direct API.
+# (Fix generation runs through the OpenCode Agent tool in the workflow --
+#  Plan keys must only be consumed by the read-only OpenCode Agent step.)
 REVIEW_PROVIDERS = [
     {
-        "name": "kimi-coding-plan",
-        "base_url": "https://api.kimi.com/coding/v1/chat/completions",
-        "env_key": "KIMI_CODINGPLAN_API_KEY",
-        "model": "k3",
+        "name": "nvidia-nim-kimi",
+        "base_url": "https://integrate.api.nvidia.com/v1/chat/completions",
+        "env_key": "NVIDIA_NIM_API_KEY",
+        "model": "moonshotai/kimi-k2.6",
     },
     {
-        "name": "nvidia-nim",
+        "name": "nvidia-nim-glm",
         "base_url": "https://integrate.api.nvidia.com/v1/chat/completions",
         "env_key": "NVIDIA_NIM_API_KEY",
         "model": "z-ai/glm-5.2",
     },
 ]
-
-# Fix generation uses the free NIM endpoint (user rule: free endpoints first).
-FIX_PROVIDER = {
-    "name": "nvidia-nim",
-    "base_url": "https://integrate.api.nvidia.com/v1/chat/completions",
-    "env_key": "NVIDIA_NIM_API_KEY",
-    "model": "nvidia/nemotron-3-super-120b-a12b:free",
-}
 
 MAX_DELETED_LINES = 50
 PATCH_PATTERNS = re.compile(r"^diff --git |^--- |^\+\+\+ |^@@ ", re.M)
@@ -282,9 +275,24 @@ def redispatch(workflow_file: str) -> bool:
     return True
 
 
+def build_prompt_command(args) -> int:
+    """生成 OpenCode Agent 的修复 prompt 文件（workflow Prepare step 调用）。"""
+    prompt = build_fix_prompt(
+        args.log_excerpt, args.classification, args.reason,
+        repo_hint="scripts/crawl_zol.py, crawl_jd.py, crawl_pconline.py, "
+                  ".github/workflows/crawl-*.yml, merge_data.py",
+    )
+    out = Path(args.prompt_output)
+    out.write_text(prompt, encoding="utf-8")
+    print(f"repair prompt written to {out} ({len(prompt)} bytes)")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--log-excerpt", required=True, help="失败日志摘录")
+    parser.add_argument("--log-excerpt", default="", help="失败日志摘录（Agent 已看过，仅存档）")
+    parser.add_argument("--patch-file", default="", help="OpenCode Agent 生成的修复 patch JSON 文件")
+    parser.add_argument("--prompt-output", default="", help="build-prompt: 输出的 prompt 文件路径")
     parser.add_argument("--classification", required=True)
     parser.add_argument("--reason", required=True)
     parser.add_argument("--workflow-name", required=True)
@@ -295,20 +303,19 @@ def main() -> int:
     parser.add_argument("--attempt-marker", default="", help="本次尝试标记（写入 issue body 防循环）")
     args = parser.parse_args()
 
+    if args.prompt_output:
+        return build_prompt_command(args)
+
     if not os.environ.get("GITHUB_TOKEN") and not os.environ.get("ACTION_PAT"):
         print("[self-repair] no GITHUB_TOKEN/ACTION_PAT", file=sys.stderr)
         return 2
 
-    # 1. 生成修复 patch（免费端点）
-    gen_provider = FIX_PROVIDER
-    prompt = build_fix_prompt(args.log_excerpt, args.classification, args.reason,
-                              repo_hint="scripts/crawl_zol.py, crawl_jd.py, crawl_pconline.py, "
-                                        ".github/workflows/crawl-*.yml, merge_data.py")
-    content = call_llm(gen_provider, prompt, max_tokens=6000)
-    if not content:
-        print("[self-repair] fix generation failed", file=sys.stderr)
-        return 2
-    fix = parse_fix_response(content)
+    # 1. 读取 OpenCode Agent 生成的修复 patch（workflow 中 Agent 步骤产出）
+    patch_path = Path(args.patch_file)
+    if not patch_path.exists():
+        print(f"[self-repair] patch file not found: {patch_path}", file=sys.stderr)
+        return 3
+    fix = parse_fix_response(patch_path.read_text(encoding="utf-8"))
     print(f"[self-repair] confidence={fix['confidence']} reasoning={fix['reasoning'][:200]}")
     if fix["confidence"] < 0.7 or not fix["patch"].strip():
         print("[self-repair] low confidence or empty patch; skipping", file=sys.stderr)
