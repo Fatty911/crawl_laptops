@@ -188,7 +188,12 @@ def main() -> int:
         ]
     if not apply_rules(rules):
         return 6
-    tp = _run(["python", "-m", "pytest", "tests/", "-q"], timeout=400)
+    # ai_pconline_repair 测试在 runner 环境（RUNNER_TEMP 存在）会误报
+    # "sandbox output path must live under RUNNER_TEMP"——清除该变量模拟本地行为
+    env_no_temp = {**os.environ}
+    env_no_temp.pop("RUNNER_TEMP", None)
+    tp = subprocess.run(["python", "-m", "pytest", "tests/", "-q"], cwd=ROOT,
+                        capture_output=True, text=True, timeout=400, env=env_no_temp)
     print(f"[mse-repair] tests: {tp.returncode}")
     if tp.returncode != 0:
         # 保留改动不恢复：失败详情留给日志；下轮 cron 幂等跳过应用后重试
