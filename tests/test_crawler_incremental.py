@@ -1,8 +1,9 @@
-"""Long-run incremental crawl mode for ZOL and JD (cursor + resume)."""
+"""Long-run incremental crawl mode for ZOL, JD and PConline (cursor + resume)."""
 
 from bs4 import BeautifulSoup
 
 import scripts.crawl_jd as jd
+import scripts.crawl_pconline as pconline
 import scripts.crawl_zol as zol
 from scripts.crawl_runtime import Progress
 
@@ -176,3 +177,77 @@ def test_jd_incremental_detail_risk_breaks_enrichment_loop(tmp_path, monkeypatch
     # risk-verified items stay retryable: they never enter processed_ids.
     assert len(progress.processed_ids) == 0
     assert progress.total_items == 2
+
+
+def _pconline_ranking(titles):
+    cards = "".join(
+        f'<li data-id="{1000 + index}">'
+        f'<a class="item-title-name" href="/notebook/{1000 + index}.shtml" title="{title}">{title}</a>'
+        f'<span class="price">6999</span></li>'
+        for index, title in enumerate(titles, start=1)
+    )
+    return BeautifulSoup(f'<html><body><ul id="productList">{cards}</ul></body></html>', "html.parser")
+
+
+def test_pconline_incremental_scan_and_resume(tmp_path, monkeypatch):
+    # PConline pagination: page N -> ranking_url((N-1)*PAGE_SIZE) -> offset.
+    pages = {
+        0: _pconline_ranking(["机械革命极光X i7-13700HX 游戏本", "联想拯救者Y7000 2025 游戏本"]),
+        25: _pconline_ranking([]),
+    }
+    fetched = []
+
+    def fake_fetch(session, url, page, node_mgr, delay):
+        if url.endswith("/notebook/s10.shtml"):
+            offset = 0
+        else:
+            offset = int(url.rstrip("s10.shtml").rsplit("/", 1)[-1])
+        fetched.append(offset)
+        return pconline.parse_ranking_page(pages[offset], page), url
+
+    monkeypatch.setattr(pconline, "_fetch_ranking_with_node_retry", fake_fetch)
+    monkeypatch.setattr(pconline, "_mihomo_controller_ready", lambda: False)
+    monkeypatch.setattr(pconline, "enrich_item", lambda session, item, delay: dict(item))
+
+    output = tmp_path / "latest.json"
+    progress_dir = tmp_path / "state"
+
+    exit_code = pconline.crawl_incremental(
+        str(output), str(progress_dir), 0.0, min_records=1, time_limit=0, max_pages=0
+    )
+
+    assert exit_code == 0
+    assert output.exists()
+    progress = Progress.load(progress_dir)
+    assert progress.scan_complete is True
+    assert progress.total_items == 2
+
+    # A resumed run after completion must not fetch anything again.
+    exit_code = pconline.crawl_incremental(
+        str(output), str(progress_dir), 0.0, min_records=1, time_limit=0, max_pages=0
+    )
+    assert exit_code == 0
+    assert fetched == [0, 25]
+
+
+def test_pconline_incremental_fake_pagination_guard(tmp_path, monkeypatch):
+    same_page = _pconline_ranking(["机械革命极光X i7-13700HX 游戏本"])
+    monkeypatch.setattr(
+        pconline, "_fetch_ranking_with_node_retry",
+        lambda session, url, page, node_mgr, delay: (
+            pconline.parse_ranking_page(same_page, page), url
+        ),
+    )
+    monkeypatch.setattr(pconline, "_mihomo_controller_ready", lambda: False)
+    monkeypatch.setattr(pconline, "enrich_item", lambda session, item, delay: dict(item))
+
+    output = tmp_path / "latest.json"
+    progress_dir = tmp_path / "state"
+    exit_code = pconline.crawl_incremental(
+        str(output), str(progress_dir), 0.0, min_records=1, time_limit=0, max_pages=50
+    )
+
+    assert exit_code == 0
+    progress = Progress.load(progress_dir)
+    assert progress.scan_complete is True
+    assert progress.total_items == 1

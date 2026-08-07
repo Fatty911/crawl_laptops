@@ -26,9 +26,15 @@ except ModuleNotFoundError:
     from merge_data import classify_cpu_voltage, extract_cpu_model
 
 try:
-    from scripts.crawl_runtime import Budget
+    from scripts.crawl_runtime import (
+        Budget, Progress, append_jsonl, human_delay, item_key, merge_new_items,
+        read_jsonl, rewrite_jsonl,
+    )
 except ModuleNotFoundError:
-    from crawl_runtime import Budget
+    from crawl_runtime import (
+        Budget, Progress, append_jsonl, human_delay, item_key, merge_new_items,
+        read_jsonl, rewrite_jsonl,
+    )
 
 
 class NodeManager:
@@ -425,6 +431,125 @@ def crawl(
     return [item for item in items if item.get("fetched_at")]
 
 
+def crawl_incremental(
+    output: str,
+    progress_dir: str,
+    delay: float,
+    min_records: int,
+    time_limit: float,
+    max_pages: int = 0,
+    max_items: int = 0,
+) -> int:
+    """Long-run incremental crawl with a persistent cursor.
+
+    Mirrors crawl_zol/crawl_jd: the ranking scan cursor and per-item
+    enrichment state survive across workflow runs, the cursor is saved
+    unconditionally after every step, and a wall-clock budget keeps the run
+    inside the Actions window.  Ranking pages reuse the mihomo node-retry
+    path (``_fetch_ranking_with_node_retry``) so anti-risk behavior is kept.
+    Exit codes: 0 = scan and enrichment complete, 10 = partial progress saved
+    (resume on the next run).
+    """
+
+    budget = Budget(time_limit)
+    state_dir = Path(progress_dir)
+    progress = Progress.load(state_dir)
+    items_path = state_dir / "items.jsonl"
+    enriched_path = state_dir / "enriched.jsonl"
+    items = read_jsonl(items_path)
+    enriched: dict[str, dict[str, Any]] = {
+        item_key(record): record
+        for record in read_jsonl(enriched_path)
+        if item_key(record)
+    }
+    session = make_session()
+    session.headers["Referer"] = f"{BASE_URL}/notebook/"
+    controller_ready = _mihomo_controller_ready()
+    node_mgr = NodeManager() if controller_ready else None
+
+    empty_streak = 0
+    if not progress.scan_complete:
+        page = max(progress.current_page, 1)
+        while not budget.expired():
+            if max_pages and page > max_pages:
+                break
+            if max_items and len(items) >= max_items:
+                progress.scan_complete = True
+                break
+            try:
+                page_items, final_url = _fetch_ranking_with_node_retry(
+                    session, ranking_url((page - 1) * PAGE_SIZE), page, node_mgr, human_delay(delay)
+                )
+            except Exception as exc:
+                print(
+                    f"PConline ranking page {page} fetch failed: "
+                    f"{type(exc).__name__}; will resume next run",
+                    file=sys.stderr,
+                )
+                break
+            session.headers["Referer"] = final_url
+            if not page_items:
+                progress.scan_complete = True
+                progress.save(state_dir)
+                break
+            before = len(items)
+            items, added = merge_new_items(items, page_items, item_key)
+            for item in items[before:]:
+                append_jsonl(items_path, item)
+            progress.current_page = page + 1
+            progress.total_items = len(items)
+            progress.save(state_dir)
+            empty_streak = empty_streak + 1 if added == 0 else 0
+            if empty_streak >= 3:
+                # Fake-pagination guard: repeated duplicate pages mean the
+                # ranking has ended; stop instead of looping forever.
+                progress.scan_complete = True
+                progress.save(state_dir)
+                break
+            page += 1
+
+    for item in items:
+        if budget.expired():
+            break
+        key = item_key(item)
+        if key in enriched:
+            continue
+        try:
+            record = enrich_item(session, dict(item), human_delay(delay))
+        except Exception as exc:
+            record = dict(item)
+            record["crawl_warning"] = f"detail_failed:{type(exc).__name__}"
+        record["fetched_at"] = utc_now()
+        enriched[key] = record
+        if not record.get("crawl_warning") and key not in progress.processed_ids:
+            # Failed detail fetches stay retryable on the next run.
+            progress.processed_ids.append(key)
+        progress.save(state_dir)
+        rewrite_jsonl(enriched_path, list(enriched.values()))
+
+    records = list(enriched.values())
+    if len(records) >= min_records:
+        out = Path(output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            json.dumps(records, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"wrote {len(records)} PConline records to {out}")
+    else:
+        print(
+            f"PConline has {len(records)} enriched records (< {min_records}); "
+            "keeping progress without publishing",
+            file=sys.stderr,
+        )
+    progress.save(state_dir)
+    complete = progress.scan_complete and all(
+        item_key(item) in enriched for item in items
+    )
+    return 0 if complete else 10
+
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="data/raw/pconline/latest.json")
@@ -436,12 +561,33 @@ def main() -> int:
         "--time-limit",
         type=float,
         default=0,
-        help="wall-clock budget in seconds (0 = unlimited)",
+        help="incremental mode wall-clock budget in seconds (0 = unlimited)",
+    )
+    parser.add_argument(
+        "--progress-dir",
+        default="",
+        help="incremental cursor directory; enables long-run mode",
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=0,
+        help="incremental mode page cap (0 = unlimited)",
     )
     args = parser.parse_args()
     if args.pages < 1 or args.max_items < 0 or args.min_records < 1:
         print("PConline CLI limits must be positive", file=sys.stderr)
         return 2
+    if args.progress_dir:
+        return crawl_incremental(
+            args.output,
+            args.progress_dir,
+            args.delay,
+            args.min_records,
+            args.time_limit,
+            args.max_pages,
+            args.max_items,
+        )
     try:
         items = crawl(args.pages, args.max_items, args.delay, args.time_limit)
     except Exception as exc:
