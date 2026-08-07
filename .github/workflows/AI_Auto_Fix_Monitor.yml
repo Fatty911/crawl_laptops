@@ -184,7 +184,8 @@ jobs:
         if: always()
         continue-on-error: true
         run: |-
-          # 检测 in_progress 但 25 分钟无 updatedAt 更新的 run（runner 掉线特征）
+          # 检测 in_progress 但 90 分钟无 updatedAt 更新的 run（runner 掉线特征；
+          # 爬虫 progress git 提交有 30 分钟 buffer，25 分钟会误杀正常长跑）
           python - <<'PYEOF'
           import json, os, subprocess, datetime
 
@@ -206,7 +207,7 @@ jobs:
               updated = datetime.datetime.fromisoformat(
                   run["updatedAt"].replace("Z", "+00:00"))
               age = (now - updated).total_seconds()
-              if age > 1500:  # 25 分钟无更新
+              if age > 5400:  # 90 分钟无更新
                   print(f"!! zombie run {run['databaseId']} "
                         f"({run['workflowName']}) no update for {int(age)}s; cancelling")
                   subprocess.run(
