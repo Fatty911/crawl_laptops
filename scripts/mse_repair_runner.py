@@ -81,7 +81,7 @@ def apply_rules(rules: list[dict]) -> bool:
             return False
     src = target.read_text(encoding="utf-8")
     marker = "    # MSE 增强"
-    if marker in src:
+    if marker in src and RULE_IMPLS["normalize_case"].strip().splitlines()[-1] in src:
         print("[mse-repair] rules already applied; skip")
         return True
     anchor = "    return family or _identity_text(text)"
@@ -191,8 +191,8 @@ def main() -> int:
     tp = _run(["python", "-m", "pytest", "tests/", "-q"], timeout=400)
     print(f"[mse-repair] tests: {tp.returncode}")
     if tp.returncode != 0:
-        print(f"[mse-repair] tests failed:\n{tp.stdout[-1200:]}")
-        _run(["git", "checkout", "--", "."])
+        # 保留改动不恢复：失败详情留给日志；下轮 cron 幂等跳过应用后重试
+        print(f"[mse-repair] tests failed:\n{tp.stdout[-1500:]}\n{tp.stderr[-800:]}")
         return 8
     diff_text = _run(["git", "diff", "HEAD"]).stdout
     sha = hashlib.sha256(diff_text.encode()).hexdigest()
