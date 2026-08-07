@@ -50,14 +50,16 @@ REVIEW_TRAILER_DIFF = "Reviewed-Diff-SHA256"
 # (Fix generation runs through the OpenCode Agent tool in the workflow --
 #  Plan keys must only be consumed by the read-only OpenCode Agent step.)
 REVIEW_PROVIDERS = [
+    # 火山方舟 Plan 端点只能经 opencode Agent 调用（Plan 边界策略），runner 直连
+    # 评审用 DeepSeek 官方（非 Plan 端点，runner 稳定；用户策略 DeepSeek 官方兜底）
     {
-        "name": "nvidia-nim-kimi",
-        "base_url": "https://integrate.api.nvidia.com/v1",
-        "env_key": "NVIDIA_NIM_API_KEY",
-        "model": "moonshotai/kimi-k2.6",
+        "name": "deepseek-official",
+        "base_url": "https://api.deepseek.com/v1",
+        "env_key": "DEEPSEEK_API_KEY",
+        "model": "deepseek-v4-flash",
     },
     {
-        "name": "nvidia-nim-glm",
+        "name": "nvidia-nim",
         "base_url": "https://integrate.api.nvidia.com/v1",
         "env_key": "NVIDIA_NIM_API_KEY",
         "model": "z-ai/glm-5.2",
