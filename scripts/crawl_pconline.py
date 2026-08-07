@@ -68,8 +68,18 @@ class NodeManager:
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 raw = resp.read()
+                print(
+                    f"[node-manager] _api {method} {path} -> {resp.status} "
+                    f"len={len(raw)}",
+                    file=sys.stderr,
+                )
                 return _json.loads(raw) if raw else {}
-        except Exception:
+        except Exception as exc:
+            print(
+                f"[node-manager] _api {method} {path} FAILED: "
+                f"{type(exc).__name__} {exc}",
+                file=sys.stderr,
+            )
             return {}
 
     def _load_blacklist(self) -> set[str]:
@@ -89,6 +99,11 @@ class NodeManager:
     def _refresh_nodes(self) -> None:
         data = self._api("GET", f"/proxies/{self.group}")
         all_names = data.get("all") or []
+        print(
+            f"[node-manager] refresh: all_names={len(all_names)} "
+            f"now={data.get('now')!r}",
+            file=sys.stderr,
+        )
         # 过滤掉 BALANCE 等组名，只留具体节点
         self.nodes = [
             name for name in all_names
@@ -103,9 +118,15 @@ class NodeManager:
             self._refresh_nodes()
         for name in self.nodes:
             if name not in self.blacklist and name != self.current:
-                self._api("PUT", f"/proxies/{self.group}", {"name": name})
+                result = self._api("PUT", f"/proxies/{self.group}", {"name": name})
+                print(
+                    f"[node-manager] select_next -> {str(name)[:40]!r} "
+                    f"api_result={bool(result)}",
+                    file=sys.stderr,
+                )
                 self.current = name
                 return name
+        print("[node-manager] select_next: no candidate", file=sys.stderr)
         return None
 
     def mark_blocked(self, name: str | None) -> None:
