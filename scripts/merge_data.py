@@ -336,6 +336,18 @@ def canonical_model_family(record: dict[str, Any]) -> str:
         if token_text and family.startswith(token_text):
             family = family[len(token_text):]
             break
+    # MSE 增强：剥离源站常见 CPU/品牌前缀词（PConline 加"酷睿"，ZOL 省略）
+    for _tok in ("酷睿", "intel", "英特尔"):
+        if family.startswith(_tok):
+            family = family[len(_tok):]
+            break
+
+    # MSE 增强：剥离屏幕规格后缀（/2.5K /240Hz /OLED /2.5K屏）
+    family = re.sub(r"/(?:\d+(?:\.\d+)?K|\d+Hz|OLED|\d+K屏)+$", "", family)
+
+    # MSE 增强：统一大小写与空白（Pro/PRO→pro、去连字符空格）
+    family = re.sub(r"\s+", "", family).replace("-", "").lower()
+
     return family or _identity_text(text)
 
 
