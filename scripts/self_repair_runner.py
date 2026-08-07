@@ -307,13 +307,57 @@ def push_main(worktree: Path) -> bool:
     return True
 
 
-def redispatch(workflow_file: str) -> bool:
+def redispatch(workflow_file: str) -> str:
+    """重新触发失败 workflow，返回新 run ID（失败返回空串）。"""
     result = _sh(["gh", "workflow", "run", workflow_file, "--repo", os.environ.get("GITHUB_REPOSITORY", "")], timeout=120)
     if result.returncode != 0:
         print(f"[self-repair] redispatch failed: {result.stderr[:1000]}", file=sys.stderr)
-        return False
+        return ""
     print(f"[self-repair] redispatched {workflow_file}")
-    return True
+    import time as _time
+    _time.sleep(15)
+    list_result = _sh(
+        ["gh", "run", "list", "--repo", os.environ.get("GITHUB_REPOSITORY", ""),
+         "--workflow", workflow_file, "--limit", "1",
+         "--json", "databaseId,status,createdAt"],
+        timeout=60,
+    )
+    if list_result.returncode == 0:
+        try:
+            runs = json.loads(list_result.stdout)
+            if runs:
+                return str(runs[0]["databaseId"])
+        except (json.JSONDecodeError, KeyError, IndexError):
+            pass
+    return ""
+
+
+def poll_redispatch(run_id: str, timeout_s: int = 1500) -> tuple[bool, str]:
+    """按 run id 轮询直到 completed 或超时。返回 (success?, conclusion)。"""
+    import time as _time
+
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    deadline = _time.monotonic() + timeout_s
+    last_st = ""
+    while _time.monotonic() < deadline:
+        result = _sh(
+            ["gh", "run", "view", run_id, "--repo", repo,
+             "--json", "status,conclusion"],
+            timeout=60,
+        )
+        if result.returncode == 0:
+            try:
+                run = json.loads(result.stdout)
+                st = run.get("status", "")
+                if st != last_st:
+                    print(f"[self-repair] redispatch run {run_id}: {st} {run.get('conclusion') or ''}")
+                last_st = st
+                if st == "completed":
+                    return run.get("conclusion") == "success", str(run.get("conclusion") or "unknown")
+            except json.JSONDecodeError:
+                pass
+        _time.sleep(30)
+    return False, "timeout"
 
 
 def build_prompt_command(args) -> int:
@@ -415,10 +459,19 @@ def main() -> int:
             _git(["worktree", "remove", "--force", str(worktree)])
             _git(["worktree", "prune"])
 
-    # 5. 重新触发失败 workflow
-    redispatch(args.workflow_file)
-    print("[self-repair] repair committed and workflow redispatched")
-    return 0
+    # 5. 重新触发失败 workflow 并轮询验证（修复是否真正生效）
+    new_run = redispatch(args.workflow_file)
+    if not new_run:
+        print("[self-repair] redispatch failed to start; cannot verify", file=sys.stderr)
+        return 2
+    print(f"[self-repair] repair committed; polling re-run {new_run}...")
+    ok, conclusion = poll_redispatch(new_run, timeout_s=1500)
+    print(f"[self-repair] redispatch result: {'PASS' if ok else 'FAIL'} ({conclusion})")
+    if ok:
+        print("[self-repair] repair verified: workflow passed after fix")
+        return 0
+    print("[self-repair] repair not verified; re-run failed or timed out", file=sys.stderr)
+    return 4
 
 
 if __name__ == "__main__":

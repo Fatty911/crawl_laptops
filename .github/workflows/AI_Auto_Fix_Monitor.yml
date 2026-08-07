@@ -24,7 +24,7 @@ jobs:
          github.event.workflow_run.conclusion == 'success')
       }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
       WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
