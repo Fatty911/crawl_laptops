@@ -49,7 +49,9 @@ jobs:
               updated = datetime.datetime.fromisoformat(
                   run["updatedAt"].replace("Z", "+00:00"))
               age = (now - updated).total_seconds()
-              if age > 1500:  # 25 分钟无更新 = runner 掉线
+              # 爬虫 progress git 提交有 30 分钟 buffer（PROGRESS_COMMIT_BUFFER_SECONDS），
+              # enrich 长跑 30-60 分钟无 git 提交正常；90 分钟无任何更新才判定卡死
+              if age > 5400:  # 90 分钟无更新 = runner 掉线
                   zombies += 1
                   print(f"!! zombie run {run['databaseId']} "
                         f"({run['workflowName']}) no update for {int(age)}s; cancelling")
@@ -69,4 +71,4 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "自修复看门狗：取消 ${{ steps.cancel.outputs.zombies }} 个僵尸 workflow run" \
             --label "crawl-failure-diagnosis" \
-            --body "看门狗检测到 runner 掉线的僵尸 run（in_progress 但 25 分钟无更新）并已自动取消。爬虫数据流可能中断，请检查是否需要重新触发。" || true
+            --body "看门狗检测到 runner 掉线的僵尸 run（in_progress 但 90 分钟无任何更新）并已自动取消。爬虫数据流可能中断，请检查是否需要重新触发。" || true

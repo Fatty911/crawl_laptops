@@ -399,6 +399,8 @@ def main() -> int:
 
     # 防循环：同一 (workflow, run) 已尝试过修复则跳过
     # marker 持久化在 repo 的 .self-repair-markers/（随修复提交进 main，跨 runner 生效）
+    # 注意：爬虫 progress git 提交有 30 分钟 buffer（PROGRESS_COMMIT_BUFFER_SECONDS），
+    # 长跑 30-60 分钟无 git 提交属正常，不得据此判定卡死。
     if args.attempt_marker:
         marker_path = ROOT / ".self-repair-markers" / f"{args.attempt_marker}.done"
         if marker_path.exists():
