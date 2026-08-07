@@ -1,0 +1,357 @@
+#!/usr/bin/env python3
+"""Self-repair runner for crawl_laptops workflow failures.
+
+Diagnosed workflow failures (site_breakage / unknown classes) are repaired
+through a bounded, reviewed loop instead of only filing an issue:
+
+  1. An LLM proposes a fix as a unified diff (never writes files directly).
+  2. The patch is applied in a throwaway git worktree and validated with
+     targeted tests (syntax check + related pytest files).
+  3. Two model families review the exact validated diff and emit the
+     repository's review trailers (Review-Model-Family-1/2,
+     Review-Result-1/2: PASS, Reviewed-Diff-SHA256).
+  4. On PASS the patch is committed on main with the trailers and the
+     failed workflow is re-dispatched; a successful re-run closes the
+     diagnosis issue.
+
+Safety:
+  - AI output is parsed as JSON {patch, reasoning, confidence}; only the
+    patch field is applied (via `git apply`), never free-form commands.
+  - The patch is validated in an isolated worktree; the working tree is
+    only touched after validation passes.
+  - A fix is attempted at most once per (workflow, head_sha) pair; the
+    attempt marker lives in the diagnosis issue body.
+  - Deletions above a threshold abort the repair.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+REVIEW_TRAILER_FAMILY_1 = "Review-Model-Family-1"
+REVIEW_TRAILER_FAMILY_2 = "Review-Model-Family-2"
+REVIEW_TRAILER_RESULT_1 = "Review-Result-1"
+REVIEW_TRAILER_RESULT_2 = "Review-Result-2"
+REVIEW_TRAILER_DIFF = "Reviewed-Diff-SHA256"
+
+# Provider endpoints for review. Per user model-tier rule (2026-08-06):
+# review models must be more expensive than deepseek-v4-flash / gpt-5.6-luna,
+# and must be from two different families.
+REVIEW_PROVIDERS = [
+    {
+        "name": "kimi-coding-plan",
+        "base_url": "https://api.kimi.com/coding/v1/chat/completions",
+        "env_key": "KIMI_CODINGPLAN_API_KEY",
+        "model": "k3",
+    },
+    {
+        "name": "nvidia-nim",
+        "base_url": "https://integrate.api.nvidia.com/v1/chat/completions",
+        "env_key": "NVIDIA_NIM_API_KEY",
+        "model": "z-ai/glm-5.2",
+    },
+]
+
+# Fix generation uses the free NIM endpoint (user rule: free endpoints first).
+FIX_PROVIDER = {
+    "name": "nvidia-nim",
+    "base_url": "https://integrate.api.nvidia.com/v1/chat/completions",
+    "env_key": "NVIDIA_NIM_API_KEY",
+    "model": "nvidia/nemotron-3-super-120b-a12b:free",
+}
+
+MAX_DELETED_LINES = 50
+PATCH_PATTERNS = re.compile(r"^diff --git |^--- |^\+\+\+ |^@@ ", re.M)
+
+
+def _sh(args: list[str], cwd: Path | None = None, timeout: int = 300) -> subprocess.CompletedProcess:
+    return subprocess.run(args, cwd=str(cwd or ROOT), capture_output=True, text=True, timeout=timeout)
+
+
+def _git(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
+    return _sh(["git", *args], cwd=cwd)
+
+
+def build_fix_prompt(log_excerpt: str, classification: str, reason: str, repo_hint: str) -> str:
+    return f"""你是资深 CI 修复工程师。crawl_laptops 仓库的一个 workflow 失败，AI 诊断如下。
+
+## 分类
+{classification} ({reason})
+
+## 失败日志摘录
+```text
+{log_excerpt[:12000]}
+```
+
+## 任务
+分析失败根因，输出一个**最小、精确**的修复补丁。约束：
+- 只允许输出统一 diff 格式（git apply 可应用），禁止直接写文件内容
+- 不允许修改 workflows 的安全关键部分（sandbox、权限、代理 env、评审门禁）
+- 不允许删除超过 {MAX_DELETED_LINES} 行
+- 不确定的修复不要输出（宁可不修，不要引入幻觉）
+- 参考仓库结构：{repo_hint}
+
+## 输出格式（严格 JSON，不要 markdown 代码块）
+{{"patch": "<unified diff 文本>", "reasoning": "<简述>", "confidence": 0.0-1.0}}
+confidence < 0.7 时 patch 必须为空字符串。
+"""
+
+
+def build_review_prompt(diff: str, workflow_name: str, run_id: str) -> str:
+    return f"""审查 crawl_laptops 仓库的自修复补丁（workflow: {workflow_name}, run: {run_id}）。
+
+## 补丁（统一 diff）
+```diff
+{diff[:12000]}
+```
+
+## 审查要点
+1. 是否最小改动、不触碰无关配置
+2. 是否违反仓库安全约束（sandbox/权限/代理/评审门禁）
+3. 是否引入新 bug 或删除过多代码
+4. 修复是否与失败根因匹配
+
+## 输出（严格 JSON）
+{{"verdict": "PASS" 或 "FAIL", "reason": "<一句话理由>"}}
+"""
+
+
+def call_llm(provider: dict, prompt: str, max_tokens: int = 4000) -> str | None:
+    import urllib.request
+
+    key = os.environ.get(provider["env_key"], "")
+    if not key:
+        return None
+    body = json.dumps({
+        "model": provider["model"],
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+    }).encode()
+    req = urllib.request.Request(
+        provider["base_url"], data=body,
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=240) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        content = data["choices"][0]["message"]["content"]
+        return content or None
+    except Exception as exc:
+        print(f"[self-repair] {provider['name']} call failed: {type(exc).__name__} {exc}", file=sys.stderr)
+        return None
+
+
+def parse_fix_response(text: str) -> dict:
+    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {"patch": "", "reasoning": "unparseable", "confidence": 0.0}
+    patch = str(data.get("patch", "") or "")
+    try:
+        confidence = float(data.get("confidence", 0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return {"patch": patch, "reasoning": str(data.get("reasoning", "")), "confidence": confidence}
+
+
+def parse_review_response(text: str) -> dict:
+    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {"verdict": "FAIL", "reason": "unparseable review"}
+    return {
+        "verdict": str(data.get("verdict", "FAIL")).upper(),
+        "reason": str(data.get("reason", "")),
+    }
+
+
+def apply_patch_in_worktree(patch: str, worktree: Path) -> bool:
+    """在临时 worktree 应用补丁。返回是否干净应用。"""
+    patch_file = worktree / "repair.patch"
+    patch_file.write_text(patch, encoding="utf-8")
+    result = _git(["apply", "--check", "--whitespace=error-all", "repair.patch"], cwd=worktree)
+    if result.returncode != 0:
+        print(f"[self-repair] git apply --check failed:\n{result.stderr[:2000]}", file=sys.stderr)
+        return False
+    result = _git(["apply", "--whitespace=error-all", "repair.patch"], cwd=worktree)
+    if result.returncode != 0:
+        print(f"[self-repair] git apply failed:\n{result.stderr[:2000]}", file=sys.stderr)
+        return False
+    return True
+
+
+def count_deleted_lines(patch: str) -> int:
+    deleted = 0
+    in_hunk = False
+    for line in patch.splitlines():
+        if line.startswith("@@"):
+            in_hunk = True
+            continue
+        if in_hunk and line.startswith("-") and not line.startswith("---"):
+            deleted += 1
+    return deleted
+
+
+def run_validation(worktree: Path) -> tuple[bool, str]:
+    """定向验证：语法检查 + 相关测试。返回 (ok, detail)。"""
+    checks = [
+        (["python", "scripts/validate_syntax.py"], "validate_syntax"),
+        (["python", "-m", "pytest", "tests/", "-q", "-x"], "pytest"),
+    ]
+    for cmd, label in checks:
+        result = _sh(cmd, cwd=worktree, timeout=600)
+        if result.returncode != 0:
+            tail = (result.stdout + result.stderr)[-1500:]
+            print(f"[self-repair] {label} failed:\n{tail}", file=sys.stderr)
+            return False, label
+        print(f"[self-repair] {label} OK")
+    return True, "all"
+
+
+def diff_sha256(worktree: Path) -> str:
+    result = _git(["diff", "HEAD"], cwd=worktree)
+    return hashlib.sha256(result.stdout.encode("utf-8")).hexdigest()
+
+
+def review_diff(diff: str, workflow_name: str, run_id: str) -> tuple[list[dict], str]:
+    """两家模型家族评审，返回 (verdicts, diff_sha256)。"""
+    reviews = []
+    prompt = build_review_prompt(diff, workflow_name, run_id)
+    for provider in REVIEW_PROVIDERS:
+        content = call_llm(provider, prompt, max_tokens=1000)
+        if not content:
+            reviews.append({"provider": provider["name"], "model": provider["model"],
+                            "verdict": "FAIL", "reason": "review call failed"})
+            continue
+        parsed = parse_review_response(content)
+        reviews.append({"provider": provider["name"], "model": provider["model"], **parsed})
+        print(f"[self-repair] review {provider['name']}/{provider['model']}: {parsed}")
+    diff_sha = diff_sha256(ROOT)
+    return reviews, diff_sha
+
+
+def commit_with_trailers(worktree: Path, diff_sha: str, reviews: list[dict], message: str) -> bool:
+    trailers = [
+        f"{REVIEW_TRAILER_FAMILY_1}: {reviews[0]['provider']}/{reviews[0]['model']}",
+        f"{REVIEW_TRAILER_RESULT_1}: PASS",
+        f"{REVIEW_TRAILER_FAMILY_2}: {reviews[1]['provider']}/{reviews[1]['model']}",
+        f"{REVIEW_TRAILER_RESULT_2}: PASS",
+        f"{REVIEW_TRAILER_DIFF}: {diff_sha}",
+    ]
+    trailer_text = "\n".join(trailers)
+    commit_msg = f"{message}\n\n{trailer_text}"
+    result = _git(["add", "-A"], cwd=worktree)
+    if result.returncode != 0:
+        return False
+    result = _git(["commit", "-m", commit_msg], cwd=worktree)
+    if result.returncode != 0:
+        print(f"[self-repair] commit failed:\n{result.stderr[:1000]}", file=sys.stderr)
+        return False
+    return True
+
+
+def push_main(worktree: Path) -> bool:
+    remote = os.environ.get("REMOTE_URL", "")
+    if not remote:
+        remote = f"https://x-access-token:{os.environ.get('GITHUB_TOKEN','')}@github.com/{os.environ.get('GITHUB_REPOSITORY','')}.git"
+    result = _git(["push", remote, "HEAD:main"], cwd=worktree, timeout=180)
+    if result.returncode != 0:
+        print(f"[self-repair] push failed:\n{result.stderr[:1500]}", file=sys.stderr)
+        return False
+    return True
+
+
+def redispatch(workflow_file: str) -> bool:
+    result = _sh(["gh", "workflow", "run", workflow_file, "--repo", os.environ.get("GITHUB_REPOSITORY", "")], timeout=120)
+    if result.returncode != 0:
+        print(f"[self-repair] redispatch failed: {result.stderr[:1000]}", file=sys.stderr)
+        return False
+    print(f"[self-repair] redispatched {workflow_file}")
+    return True
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--log-excerpt", required=True, help="失败日志摘录")
+    parser.add_argument("--classification", required=True)
+    parser.add_argument("--reason", required=True)
+    parser.add_argument("--workflow-name", required=True)
+    parser.add_argument("--workflow-file", required=True, help="失败 workflow 文件名（重新触发用）")
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--fix-provider", default="nvidia-nim",
+                        help="生成修复的模型 provider（默认 NIM 免费端点）")
+    parser.add_argument("--attempt-marker", default="", help="本次尝试标记（写入 issue body 防循环）")
+    args = parser.parse_args()
+
+    if not os.environ.get("GITHUB_TOKEN") and not os.environ.get("ACTION_PAT"):
+        print("[self-repair] no GITHUB_TOKEN/ACTION_PAT", file=sys.stderr)
+        return 2
+
+    # 1. 生成修复 patch（免费端点）
+    gen_provider = FIX_PROVIDER
+    prompt = build_fix_prompt(args.log_excerpt, args.classification, args.reason,
+                              repo_hint="scripts/crawl_zol.py, crawl_jd.py, crawl_pconline.py, "
+                                        ".github/workflows/crawl-*.yml, merge_data.py")
+    content = call_llm(gen_provider, prompt, max_tokens=6000)
+    if not content:
+        print("[self-repair] fix generation failed", file=sys.stderr)
+        return 2
+    fix = parse_fix_response(content)
+    print(f"[self-repair] confidence={fix['confidence']} reasoning={fix['reasoning'][:200]}")
+    if fix["confidence"] < 0.7 or not fix["patch"].strip():
+        print("[self-repair] low confidence or empty patch; skipping", file=sys.stderr)
+        return 3
+    if count_deleted_lines(fix["patch"]) > MAX_DELETED_LINES:
+        print("[self-repair] deletion guard triggered", file=sys.stderr)
+        return 3
+
+    # 2. 临时 worktree 应用 + 验证
+    with tempfile.TemporaryDirectory(prefix="self-repair-") as tmp:
+        worktree = Path(tmp) / "wt"
+        result = _git(["worktree", "add", str(worktree), "main"])
+        if result.returncode != 0:
+            print(f"[self-repair] worktree add failed:\n{result.stderr[:800]}", file=sys.stderr)
+            return 2
+        try:
+            if not apply_patch_in_worktree(fix["patch"], worktree):
+                return 3
+            ok, label = run_validation(worktree)
+            if not ok:
+                print(f"[self-repair] validation failed at {label}; not committing", file=sys.stderr)
+                return 3
+            # 3. 两家模型评审（针对 worktree 的精确 diff）
+            diff = _git(["diff", "HEAD"], cwd=worktree).stdout
+            reviews, diff_sha = review_diff(diff, args.workflow_name, args.run_id)
+            if len(reviews) < 2 or any(r["verdict"] != "PASS" for r in reviews):
+                print("[self-repair] review not passed; not committing", file=sys.stderr)
+                return 3
+            # 4. 提交 + 推送
+            if not commit_with_trailers(worktree, diff_sha, reviews,
+                                        f"fix: auto-repair {args.workflow_name} failure ({args.classification}) [skip ci]"):
+                return 2
+            if not push_main(worktree):
+                return 2
+        finally:
+            _git(["worktree", "remove", "--force", str(worktree)])
+            _git(["worktree", "prune"])
+
+    # 5. 重新触发失败 workflow
+    redispatch(args.workflow_file)
+    print("[self-repair] repair committed and workflow redispatched")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

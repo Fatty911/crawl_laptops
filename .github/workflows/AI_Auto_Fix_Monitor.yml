@@ -6,8 +6,8 @@ on:
     types: [completed]
 
 permissions:
-  contents: read
-  actions: read
+  contents: write
+  actions: write
   issues: write
 
 concurrency:
@@ -169,6 +169,44 @@ jobs:
                 --body-file "$BODY_FILE"
             fi
           fi
+
+      - name: Attempt self-repair
+        if: >-
+          always() &&
+          steps.classify.outputs.should_diagnose == 'true' &&
+          (steps.classify.outputs.classification == 'site_breakage' ||
+           steps.classify.outputs.classification == 'unknown')
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTION_PAT || github.token }}
+          KIMI_CODINGPLAN_API_KEY: ${{ secrets.KIMI_CODINGPLAN_API_KEY }}
+          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+        run: |-
+          set +e
+          # 失败日志摘录（诊断已下载）
+          EXCERPT=""
+          if [ -s workflow_error.log ]; then
+            EXCERPT="$(head -c 8000 workflow_error.log)"
+          elif [ -s workflow_full.log ]; then
+            EXCERPT="$(head -c 8000 workflow_full.log)"
+          fi
+          if [ -z "$EXCERPT" ]; then
+            echo "无失败日志，跳过自修复"
+            echo "self_repair_status=no_logs" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$EXCERPT" > self_repair_excerpt.txt
+          case "${{ env.WORKFLOW_NAME }}" in
+            "Crawl ZOL") WF_FILE="crawl-zol.yml" ;;
+            "Crawl JD") WF_FILE="crawl-jd.yml" ;;
+            "Crawl PConline") WF_FILE="crawl-pconline.yml" ;;
+            *) WF_FILE="crawl-zol.yml" ;;
+          esac
+          echo "self_repair_wf=$WF_FILE" >> "$GITHUB_ENV"
+          python scripts/self_repair_runner.py             --log-excerpt "$EXCERPT"             --classification "${{ steps.classify.outputs.classification }}"             --reason "${{ steps.classify.outputs.reason }}"             --workflow-name "${{ env.WORKFLOW_NAME }}"             --workflow-file "$WF_FILE"             --run-id "${{ env.WORKFLOW_RUN_ID }}"             --attempt-marker "self-repair-${{ env.WORKFLOW_RUN_ID }}-${{ env.WORKFLOW_HEAD_SHA }}"
+          SELF_REPAIR_EXIT=$?
+          set -e
+          echo "self_repair_status=$([ $SELF_REPAIR_EXIT -eq 0 ] && echo committed || echo not_committed)" >> "$GITHUB_OUTPUT"
 
       - name: Report monitor result
         if: always()
