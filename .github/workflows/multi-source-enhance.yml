@@ -75,95 +75,70 @@ jobs:
           PYEOF
           cat multi-source-report.json | head -40
 
-      - name: Prepare merge-gap analysis prompt
-        id: gap_prompt
-        if: steps.mse_scan.outcome == 'success'
-        continue-on-error: true
-        run: |
-          python3 - <<'PYEOF'
-          import json, os, sys
-          d = json.load(open('multi-source-report.json', encoding='utf-8'))
-          overlaps = [o for o in d.get('raw_overlaps', []) if o.get('kind') == 'compatible']
-          if not overlaps:
-              print("NO_GAP")
-              raise SystemExit(0)
-          lines = ["分析以下 ZOL×PConline 兼容配置重叠为何未在 Pages 合并，并给出 merge_data.py 的修复建议："]
-          for o in overlaps[:15]:
-              lines.append(f"- ZOL: {o['a_title']} | PConline: {o['b_title']}")
-          open('gap_prompt.md', 'w', encoding='utf-8').write("\n".join(lines))
-          print(f"GAP_COUNT={len(overlaps)}")
-          with open(env_var := os.environ.get('GITHUB_OUTPUT', ''), 'a', encoding='utf-8') as f:
-              f.write(f"GAP_COUNT={len(overlaps)}\n")
-          PYEOF
-
-      - name: Prepare isolated repair Agent directory
-        if: >-
-          steps.mse_scan.outcome == 'success' &&
-          steps.gap_prompt.outputs.GAP_COUNT != '' &&
-          steps.gap_prompt.outputs.GAP_COUNT != '0'
-        run: |
-          mkdir -p "$RUNNER_TEMP/opencode-agent"
-          cp gap_prompt.md "$RUNNER_TEMP/opencode-agent/prompt.md"
-
       - name: Set up Node.js for Agent tools
-        if: >-
-          steps.mse_scan.outcome == 'success' &&
-          steps.gap_prompt.outputs.GAP_COUNT != '' &&
-          steps.gap_prompt.outputs.GAP_COUNT != '0'
         uses: actions/setup-node@main
         with:
           node-version: "22"
 
       - name: Install OpenCode Agent CLI
-        if: >-
-          steps.mse_scan.outcome == 'success' &&
-          steps.gap_prompt.outputs.GAP_COUNT != '' &&
-          steps.gap_prompt.outputs.GAP_COUNT != '0'
         run: npm install -g opencode-ai@latest
 
-      - name: Analyze merge gap via Agent (Volcengine AgentPlan)
-        id: gap_agent
-        if: >-
-          steps.mse_scan.outcome == 'success' &&
-          steps.gap_prompt.outputs.GAP_COUNT != '' &&
-          steps.gap_prompt.outputs.GAP_COUNT != '0'
+      - name: Build MSE repair prompt
+        id: mse_prompt
+        if: steps.mse_scan.outcome == 'success'
+        continue-on-error: true
+        run: |
+          python3 - <<'PYEOF'
+          import json, sys
+          d = json.load(open('multi-source-report.json', encoding='utf-8'))
+          overlaps = [o for o in d.get('raw_overlaps', []) if o.get('kind') == 'compatible']
+          if not overlaps:
+              print("NO_COMPATIBLE_OVERLAP")
+              raise SystemExit(0)
+          lines = [
+              "你是笔记本数据合并专家。merge_data.py 的 canonical_model_family 归一化不完整，导致以下 ZOL×PConline 兼容配置机型未合并。",
+              "已知根因：PConline 加'酷睿'前缀 ZOL 省略；屏幕规格后缀(/2.5K /240Hz /OLED)未剥离；大小写/空格差异(Redmi vs REDMI、Pro vs PRO、R9 vs 锐龙9)。",
+              "生成 scripts/merge_data.py 的最小补丁：增强 canonical_model_family 归一化（去 CPU 前缀词、剥屏幕后缀、统一大小写空白），不得破坏现有测试。",
+              "当前未合并的兼容重叠：",
+          ]
+          for o in overlaps[:20]:
+              lines.append(f"- ZOL: {o['a_title']} || PConline: {o['b_title']}")
+          lines.append('输出：单个 JSON 对象 {"patch": "<unified diff>", "reasoning": "...", "confidence": 0-1}')
+          Path('mse_prompt.md').write_text("\n".join(lines), encoding='utf-8')
+          print(f"GAP_COUNT={len(overlaps)}")
+          with open('gap_count.txt', 'w', encoding='utf-8') as f:
+              f.write(str(len(overlaps)))
+          PYEOF
+
+      - name: Prepare isolated repair Agent directory
+        if: steps.mse_scan.outcome == 'success'
+        run: |
+          mkdir -p "$RUNNER_TEMP/opencode-agent"
+          cp mse_prompt.md "$RUNNER_TEMP/opencode-agent/prompt.md"
+
+      - name: Set up Node.js for Agent tools
+        uses: actions/setup-node@main
+        with:
+          node-version: "22"
+
+      - name: Install OpenCode Agent CLI
+        run: npm install -g opencode-ai@latest
+
+      - name: Generate merge fix via Agent (Volcengine AgentPlan)
+        id: mse_agent
+        if: steps.mse_scan.outcome == 'success'
         continue-on-error: true
         env:
           VOLCENGINE_AGENTPLAN_API_KEY: ${{ secrets.VOLCENGINE_AGENTPLAN_API_KEY }}
           OPENCODE_CONFIG_CONTENT: >-
             {"autoupdate":false,"provider":{"volcengine-agentplan":{"npm":"@ai-sdk/openai-compatible","name":"Volcengine AgentPlan","options":{"baseURL":"https://ark.cn-beijing.volces.com/api/plan/v3","apiKey":"{env:VOLCENGINE_AGENTPLAN_API_KEY}"},"models":{"deepseek-v4-flash":{"limit":{"context":262144,"output":32768}}}}},"agent":{"plan":{"model":"volcengine-agentplan/deepseek-v4-flash","permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}},"permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}
         run: >-
-          opencode run --pure --agent plan --model volcengine-agentplan/deepseek-v4-flash --format default --dir "$RUNNER_TEMP/opencode-agent" "Return one JSON object: {root_cause, fix_suggestion, expected_impact}. Do not call tools or modify files." --file prompt.md > gap_analysis.json
+          opencode run --pure --agent plan --model volcengine-agentplan/deepseek-v4-flash --format default --dir "$RUNNER_TEMP/opencode-agent" "Return one JSON object: {patch, reasoning, confidence}. Do not call tools or modify files." --file prompt.md > mse_patch_out.json
 
-      - name: Report merge gap analysis
-        if: steps.gap_agent.outcome == 'success'
+      - name: Apply, test, review, commit, trigger merge
+        if: steps.mse_agent.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.ACTION_PAT || github.token }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          python3 - <<'PYEOF'
-          import json
-          raw = open('gap_analysis.json', encoding='utf-8').read()
-          d = {}
-          start = raw.find('{')
-          if start >= 0:
-              depth = 0
-              end = -1
-              for i in range(start, len(raw)):
-                  if raw[i] == '{':
-                      depth += 1
-                  elif raw[i] == '}':
-                      depth -= 1
-                      if depth == 0:
-                          end = i + 1
-                          break
-              if end > start:
-                  try:
-                      d = json.loads(raw[start:end])
-                  except Exception:
-                      d = {}
-          text = f"自动差异归并分析（UTC）：\n根因: {d.get('root_cause', 'N/A')}\n修复建议: {d.get('fix_suggestion', 'N/A')}\n预期影响: {d.get('expected_impact', 'N/A')}"
-          print(text)
-          with open('gap_report.txt', 'w', encoding='utf-8') as f:
-              f.write(text)
-          PYEOF
-          gh issue comment 86 --repo "${{ github.repository }}" --body-file gap_report.txt || echo "issue 评论失败"
+          python scripts/mse_repair_runner.py --patch-file mse_patch_out.json
