@@ -319,7 +319,7 @@ def redispatch(workflow_file: str) -> bool:
 def build_prompt_command(args) -> int:
     """生成 OpenCode Agent 的修复 prompt 文件（workflow Prepare step 调用）。"""
     prompt = build_fix_prompt(
-        args.log_excerpt, args.classification, args.reason,
+        args.log_excerpt or "", args.classification, args.reason,
         repo_hint="scripts/crawl_zol.py, crawl_jd.py, crawl_pconline.py, "
                   ".github/workflows/crawl-*.yml, merge_data.py",
     )
@@ -331,25 +331,39 @@ def build_prompt_command(args) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("subcommand", nargs="?", default="",
+                        help="build-prompt（生成 Agent 修复 prompt）或 apply（默认）")
     parser.add_argument("--log-excerpt", default="", help="失败日志摘录（Agent 已看过，仅存档）")
     parser.add_argument("--patch-file", default="", help="OpenCode Agent 生成的修复 patch JSON 文件")
     parser.add_argument("--prompt-output", default="", help="build-prompt: 输出的 prompt 文件路径")
     parser.add_argument("--classification", required=True)
     parser.add_argument("--reason", required=True)
-    parser.add_argument("--workflow-name", required=True)
-    parser.add_argument("--workflow-file", required=True, help="失败 workflow 文件名（重新触发用）")
-    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--workflow-name", default="")
+    parser.add_argument("--workflow-file", default="", help="失败 workflow 文件名（重新触发用）")
+    parser.add_argument("--run-id", default="")
     parser.add_argument("--fix-provider", default="nvidia-nim",
                         help="生成修复的模型 provider（默认 NIM 免费端点）")
     parser.add_argument("--attempt-marker", default="", help="本次尝试标记（写入 issue body 防循环）")
     args = parser.parse_args()
 
-    if args.prompt_output:
+    if args.subcommand == "build-prompt" or args.prompt_output:
         return build_prompt_command(args)
 
     if not os.environ.get("GITHUB_TOKEN") and not os.environ.get("ACTION_PAT"):
         print("[self-repair] no GITHUB_TOKEN/ACTION_PAT", file=sys.stderr)
         return 2
+
+    # 防循环：同一 (workflow, run) 已尝试过修复则跳过
+    # marker 持久化在 repo 的 .self-repair-markers/（随修复提交进 main，跨 runner 生效）
+    if args.attempt_marker:
+        marker_path = ROOT / ".self-repair-markers" / f"{args.attempt_marker}.done"
+        if marker_path.exists():
+            print(
+                f"[self-repair] attempt already done for {args.attempt_marker}; skipping",
+                file=sys.stderr,
+            )
+            return 3
+        os.environ["SELF_REPAIR_MARKER_FILE"] = f"{args.attempt_marker}.done"
 
     # 1. 读取 OpenCode Agent 生成的修复 patch（workflow 中 Agent 步骤产出）
     patch_path = Path(args.patch_file)
@@ -375,6 +389,12 @@ def main() -> int:
         try:
             if not apply_patch_in_worktree(fix["patch"], worktree):
                 return 3
+            # 写防循环 marker 到 worktree（随修复 commit 一起进 main）
+            marker_rel = os.environ.get("SELF_REPAIR_MARKER_FILE", "")
+            if marker_rel:
+                mpath = worktree / ".self-repair-markers" / marker_rel
+                mpath.parent.mkdir(parents=True, exist_ok=True)
+                mpath.write_text("done", encoding="utf-8")
             ok, label = run_validation(worktree)
             if not ok:
                 print(f"[self-repair] validation failed at {label}; not committing", file=sys.stderr)
