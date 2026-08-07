@@ -34,6 +34,8 @@ jobs:
 
       - name: Download latest crawler artifacts
         id: artifacts
+        env:
+          GH_TOKEN: ${{ secrets.ACTION_PAT || github.token }}
         run: |
           mkdir -p data/raw/zol data/raw/pconline data/pages
           ZOL_ID=$(gh api repos/${{ github.repository }}/actions/artifacts --jq '[.artifacts[] | select(.name | startswith("zol-data-")) | select(.expired==false)] | sort_by(.created_at) | reverse | .[0].id' 2>/dev/null)
@@ -133,6 +135,8 @@ jobs:
 
       - name: Report merge gap analysis
         if: steps.gap_agent.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.ACTION_PAT || github.token }}
         run: |
           python3 - <<'PYEOF'
           import json
