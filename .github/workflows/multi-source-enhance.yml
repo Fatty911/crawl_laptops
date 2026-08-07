@@ -43,18 +43,24 @@ jobs:
           ZOL_ID=$(gh api repos/${{ github.repository }}/actions/artifacts --jq '[.artifacts[] | select(.name | startswith("zol-data-")) | select(.expired==false)] | sort_by(.created_at) | reverse | .[0].id' 2>/dev/null)
           PCL_ID=$(gh api repos/${{ github.repository }}/actions/artifacts --jq '[.artifacts[] | select(.name | startswith("pconline-data-")) | select(.expired==false)] | sort_by(.created_at) | reverse | .[0].id' 2>/dev/null)
           echo "ZOL_ID=$ZOL_ID PCL_ID=$PCL_ID"
-          if [ -z "$ZOL_ID" ] || [ -z "$PCL_ID" ]; then
-            echo "缺少 artifacts，跳过"
+          if [ -n "$ZOL_ID" ]; then
+            gh api repos/${{ github.repository }}/actions/artifacts/$ZOL_ID/zip > /tmp/zol.zip
+            unzip -o -q /tmp/zol.zip -d data/raw/zol
+          else
+            echo "ZOL artifact 缺失（可能过期清理），降级为 PConline 单源扫描"
+          fi
+          if [ -n "$PCL_ID" ]; then
+            gh api repos/${{ github.repository }}/actions/artifacts/$PCL_ID/zip > /tmp/pcl.zip
+            unzip -o -q /tmp/pcl.zip -d data/raw/pconline
+          fi
+          curl -s --max-time 30 "https://nbs.jiucai.eu.org/data/latest.json" -o data/pages/latest.json || echo "PAGES_FETCH_FAILED"
+          if [ -z "$ZOL_ID" ] && [ -z "$PCL_ID" ]; then
+            echo "无任何 artifacts，跳过"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          gh api repos/${{ github.repository }}/actions/artifacts/$ZOL_ID/zip > /tmp/zol.zip
-          gh api repos/${{ github.repository }}/actions/artifacts/$PCL_ID/zip > /tmp/pcl.zip
-          unzip -o -q /tmp/zol.zip -d data/raw/zol
-          unzip -o -q /tmp/pcl.zip -d data/raw/pconline
-          curl -s --max-time 30 "https://nbs.jiucai.eu.org/data/latest.json" -o data/pages/latest.json || echo "PAGES_FETCH_FAILED"
           echo "skip=false" >> "$GITHUB_OUTPUT"
-          ls -la data/raw/zol data/raw/pconline
+          ls -la data/raw/zol data/raw/pconline 2>/dev/null || true
 
       - name: Run multi-source enhancement scan
         id: mse_scan
