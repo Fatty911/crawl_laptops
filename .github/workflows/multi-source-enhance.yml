@@ -133,7 +133,7 @@ jobs:
           OPENCODE_CONFIG_CONTENT: >-
             {"autoupdate":false,"provider":{"volcengine-agentplan":{"npm":"@ai-sdk/openai-compatible","name":"Volcengine AgentPlan","options":{"baseURL":"https://ark.cn-beijing.volces.com/api/plan/v3","apiKey":"{env:VOLCENGINE_AGENTPLAN_API_KEY}"},"models":{"deepseek-v4-flash":{"limit":{"context":262144,"output":32768}}}}},"agent":{"plan":{"model":"volcengine-agentplan/deepseek-v4-flash","permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}},"permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}
         run: >-
-          opencode run --pure --agent plan --model volcengine-agentplan/deepseek-v4-flash --format default --dir "$RUNNER_TEMP/opencode-agent" --file prompt.md "Return one JSON object: {root_cause, fix_suggestion, expected_impact}. Do not call tools or modify files." > gap_analysis.json
+          opencode run --pure --agent plan --model volcengine-agentplan/deepseek-v4-flash --format default --dir "$RUNNER_TEMP/opencode-agent" "Return one JSON object: {root_cause, fix_suggestion, expected_impact}. Do not call tools or modify files." --file prompt.md > gap_analysis.json
 
       - name: Report merge gap analysis
         if: steps.gap_agent.outcome == 'success'

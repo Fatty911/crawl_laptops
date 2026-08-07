@@ -356,7 +356,7 @@ jobs:
           OPENCODE_CONFIG_CONTENT: >-
             {"autoupdate":false,"provider":{"kimi-coding-plan":{"npm":"@ai-sdk/openai-compatible","name":"Kimi Coding Plan","options":{"baseURL":"https://api.kimi.com/coding/v1","apiKey":"{env:KIMI_CODINGPLAN_API_KEY}"},"models":{"kimi-k2.6":{"limit":{"context":262144,"output":32768}}}}},"agent":{"plan":{"model":"kimi-coding-plan/kimi-k2.6","permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}},"permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}
         run: >-
-          opencode run --pure --agent plan --model kimi-coding-plan/kimi-k2.6 --format default --dir "$RUNNER_TEMP/opencode-agent" --file prompt.md "Return one JSON object with exactly these top-level fields: request_id, prompt_sha256, proposal. Set request_id to $PLAN_REQUEST_ID and prompt_sha256 to $PLAN_PROMPT_SHA256. Put the original proposal JSON fields inside proposal. Do not call tools or modify files." > plan_repair_response.json
+          opencode run --pure --agent plan --model kimi-coding-plan/kimi-k2.6 --format default --dir "$RUNNER_TEMP/opencode-agent" "Return one JSON object with exactly these top-level fields: request_id, prompt_sha256, proposal. Set request_id to $PLAN_REQUEST_ID and prompt_sha256 to $PLAN_PROMPT_SHA256. Put the original proposal JSON fields inside proposal. Do not call tools or modify files." --file prompt.md > plan_repair_response.json
 
       - name: Run Volcengine AgentPlan through read-only OpenCode Agent (fallback)
         id: ark_repair_agent
@@ -369,7 +369,7 @@ jobs:
           OPENCODE_CONFIG_CONTENT: >-
             {"autoupdate":false,"provider":{"volcengine-agentplan":{"npm":"@ai-sdk/openai-compatible","name":"Volcengine AgentPlan","options":{"baseURL":"https://ark.cn-beijing.volces.com/api/plan/v3","apiKey":"{env:VOLCENGINE_AGENTPLAN_API_KEY}"},"models":{"deepseek-v4-flash":{"limit":{"context":262144,"output":32768}}}}},"agent":{"plan":{"model":"volcengine-agentplan/deepseek-v4-flash","permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}},"permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}
         run: >-
-          opencode run --pure --agent plan --model volcengine-agentplan/deepseek-v4-flash --format default --dir "$RUNNER_TEMP/opencode-agent" --file prompt.md "Return one JSON object with exactly these top-level fields: request_id, prompt_sha256, proposal. Set request_id to $PLAN_REQUEST_ID and prompt_sha256 to $PLAN_PROMPT_SHA256. Put the original proposal JSON fields inside proposal. Do not call tools or modify files." > plan_repair_response.json
+          opencode run --pure --agent plan --model volcengine-agentplan/deepseek-v4-flash --format default --dir "$RUNNER_TEMP/opencode-agent" "Return one JSON object with exactly these top-level fields: request_id, prompt_sha256, proposal. Set request_id to $PLAN_REQUEST_ID and prompt_sha256 to $PLAN_PROMPT_SHA256. Put the original proposal JSON fields inside proposal. Do not call tools or modify files." --file prompt.md > plan_repair_response.json
 
       - name: Consume Plan Agent repair proposal
         if: >-

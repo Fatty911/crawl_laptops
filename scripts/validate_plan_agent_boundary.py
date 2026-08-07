@@ -117,6 +117,8 @@ def _validate_agent_step(
         errors.append(f"{prefix}: Agent step must use --pure --agent plan --model")
     if '--dir "$RUNNER_TEMP/opencode-agent"' not in run:
         errors.append(f"{prefix}: Agent step must run in the isolated temporary directory")
+    # opencode yargs 的 --file 是 array 参数，会贪婪吞噬后续位置参数；
+    # 正确写法是 message 在前、--file prompt.md 在后（--file 仍必须存在）
     if "--file prompt.md" not in run:
         errors.append(f"{prefix}: Agent step must read the copied prompt file")
     if "\n" in run or any(operator in run for operator in (";", "&&", "||", "|")):

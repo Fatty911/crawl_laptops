@@ -220,7 +220,7 @@ jobs:
           OPENCODE_CONFIG_CONTENT: >-
             {"autoupdate":false,"provider":{"kimi-coding-plan":{"npm":"@ai-sdk/openai-compatible","name":"Kimi Coding Plan","options":{"baseURL":"https://api.kimi.com/coding/v1","apiKey":"{env:KIMI_CODINGPLAN_API_KEY}"},"models":{"kimi-k2.6":{"limit":{"context":262144,"output":32768}}}}},"agent":{"plan":{"model":"kimi-coding-plan/kimi-k2.6","permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}},"permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}
         run: >-
-          opencode run --pure --agent plan --model kimi-coding-plan/kimi-k2.6 --format default --dir "$RUNNER_TEMP/opencode-agent" --file prompt.md "Return only the requested analysis. The response must contain exactly one plain line REQUEST_ID: $PLAN_REQUEST_ID and exactly one plain line PROMPT_SHA256: $PLAN_PROMPT_SHA256, then the analysis. Do not call tools or modify files." > ./llm_agent_analysis.md
+          opencode run --pure --agent plan --model kimi-coding-plan/kimi-k2.6 --format default --dir "$RUNNER_TEMP/opencode-agent" "Return only the requested analysis. The response must contain exactly one plain line REQUEST_ID: $PLAN_REQUEST_ID and exactly one plain line PROMPT_SHA256: $PLAN_PROMPT_SHA256, then the analysis. Do not call tools or modify files." --file prompt.md > ./llm_agent_analysis.md
 
       - name: Finalize audit analysis without passing Plan key to Python
         if: always()
