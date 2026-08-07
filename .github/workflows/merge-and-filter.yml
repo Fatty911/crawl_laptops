@@ -172,7 +172,7 @@ jobs:
           fi
           MSE_SUMMARY=$(cat dist/mse_summary.txt)
           echo "MSE_SUMMARY=$MSE_SUMMARY"
-          COMPAT=$(echo "$MSE_SUMMARY" | grep -oE "compatible=[0-9]+" | cut -d= -f2)
+          COMPAT=$(echo "$MSE_SUMMARY" | grep -oE "\bcompatible=[0-9]+" | cut -d= -f2 | head -1)
           if [ -n "$COMPAT" ] && [ "$COMPAT" -gt 0 ]; then
             gh issue create               --repo "${{ github.repository }}"               --title "多源率提升：$COMPAT 个兼容跨源重叠未合并"               --label "crawl-failure-diagnosis"               --body "多源扫描发现 $COMPAT 个兼容配置的跨源重叠未进入发布，详见 merge 日志中的 dist/multi-source-report.json。"
           else
