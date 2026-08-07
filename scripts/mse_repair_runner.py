@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""MSE repair runner (single round).
+"""MSE repair runner: deterministic rule-based merge_data normalisation.
 
-Reads the Agent-generated patch (mse_patch_out.json), applies it, runs tests,
-reviews via DeepSeek official, commits with trailers, pushes, then triggers a
-merge-and-filter rerun so the next cron tick re-scans with fresh merged data.
-The multi-source-enhance workflow runs every 2 hours -> repeated rounds until
-the compatible overlap count reaches zero (then the scan step skips).
+The Agent outputs *rules* (strip prefixes/suffixes, case normalisation)
+as JSON — NOT a diff (plan agents cannot reliably emit unified diffs).
+This runner deterministically implements those rules in canonical_model_family,
+runs tests, reviews via DeepSeek official, commits with trailers, pushes, and
+triggers a merge-and-filter rerun.  The workflow cron repeats until the
+compatible overlap count reaches zero.
 """
 from __future__ import annotations
 
@@ -21,7 +22,23 @@ from pathlib import Path
 
 ROOT = Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
 REPO = os.environ.get("GITHUB_REPOSITORY", "Fatty911/crawl_laptops")
-MERGE_POLL = 420  # seconds to wait for merge rerun
+MERGE_POLL = 420
+
+# 归一化规则 -> 确定性 merge_data.py 补丁代码（插到 canonical_model_family 清洗段）
+RULE_IMPLS = {
+    "strip_prefix": '''    # MSE 增强：剥离源站常见 CPU/品牌前缀词（PConline 加"酷睿"，ZOL 省略）
+    for _tok in ("酷睿", "intel", "英特尔"):
+        if family.startswith(_tok):
+            family = family[len(_tok):]
+            break
+''',
+    "strip_suffix": '''    # MSE 增强：剥离屏幕规格后缀（/2.5K /240Hz /OLED /2.5K屏）
+    family = re.sub(r"/(?:\\d+(?:\\.\\d+)?K|\\d+Hz|OLED|\\d+K屏)+$", "", family)
+''',
+    "normalize_case": '''    # MSE 增强：统一大小写与空白（Pro/PRO→pro、去连字符空格）
+    family = re.sub(r"\\s+", "", family).replace("-", "").lower()
+''',
+}
 
 
 def _run(cmd: list[str], cwd: Path | None = None, timeout: int = 300) -> subprocess.CompletedProcess:
@@ -49,6 +66,41 @@ def extract_json(raw: str) -> dict:
         return json.loads(raw[start:end])
     except Exception:
         return {}
+
+
+def apply_rules(rules: list[dict]) -> bool:
+    """Insert deterministic normalisation code into canonical_model_family."""
+    target = ROOT / "scripts/merge_data.py"
+    if not target.exists():
+        # 测试注入：允许 ROOT 直接含 merge_data.py
+        alt = ROOT / "merge_data.py"
+        if alt.exists():
+            target = alt
+        else:
+            print(f"[mse-repair] merge_data.py not found under {ROOT}")
+            return False
+    src = target.read_text(encoding="utf-8")
+    marker = "    # MSE 增强"
+    if marker in src:
+        print("[mse-repair] rules already applied; skip")
+        return True
+    anchor = "    return family or _identity_text(text)"
+    if anchor not in src:
+        print("[mse-repair] anchor not found in canonical_model_family")
+        return False
+    impls = []
+    for r in rules:
+        t = r.get("type")
+        if t in RULE_IMPLS:
+            impls.append(RULE_IMPLS[t])
+    if not impls:
+        print("[mse-repair] no implementable rules")
+        return False
+    block = "\n".join(impls)
+    new_src = src.replace(anchor, block + "\n" + anchor, 1)
+    target.write_text(new_src, encoding="utf-8")
+    print(f"[mse-repair] applied {len(impls)} rules")
+    return True
 
 
 def review_patch(diff_text: str, diff_sha: str) -> list[dict]:
@@ -107,7 +159,7 @@ def trigger_merge_and_wait() -> bool:
                    "--limit", "1", "--json", "status,conclusion,createdAt"], timeout=60)
         try:
             runs = json.loads(rr.stdout)
-            if runs and runs[0]["status"] == "completed" and "2026" in runs[0].get("createdAt", "2026"):
+            if runs and runs[0]["status"] == "completed":
                 return runs[0].get("conclusion") == "success"
         except Exception:
             pass
@@ -125,21 +177,16 @@ def main() -> int:
         return 0
     raw = patch_path.read_text(encoding="utf-8")
     agent = extract_json(raw)
-    patch = agent.get("patch", "")
-    if not patch:
-        print("[mse-repair] no patch in agent output; done")
+    rules = agent.get("rules", [])
+    if not rules:
+        print("[mse-repair] no rules in agent output; done")
         return 0
-    # 保存 diff（agent 可能给 unified diff 或直接改后内容；这里支持 unified diff）
-    Path("mse_repair.patch").write_text(patch, encoding="utf-8")
-    check = _run(["git", "apply", "--check", "mse_repair.patch"])
-    if check.returncode != 0:
-        print(f"[mse-repair] patch apply --check failed: {check.stderr[:200]}")
-        return 7
-    _run(["git", "apply", "mse_repair.patch"])
+    if not apply_rules(rules):
+        return 6
     tp = _run(["python", "-m", "pytest", "tests/", "-q"], timeout=400)
     print(f"[mse-repair] tests: {tp.returncode}")
     if tp.returncode != 0:
-        print(f"[mse-repair] tests failed:\n{tp.stdout[-1500:]}\n{tp.stderr[-800:]}")
+        print(f"[mse-repair] tests failed:\n{tp.stdout[-1200:]}")
         _run(["git", "checkout", "--", "."])
         return 8
     diff_text = _run(["git", "diff", "HEAD"]).stdout
@@ -149,7 +196,7 @@ def main() -> int:
         return 9
     if not trigger_merge_and_wait():
         print("[mse-repair] merge rerun failed; fix committed, next cron re-scans")
-    print("[mse-repair] round complete; next cron tick re-scans for remaining overlaps")
+    print("[mse-repair] round complete; next cron tick re-scans")
     return 0
 
 

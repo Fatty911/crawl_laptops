@@ -99,12 +99,13 @@ jobs:
           lines = [
               "你是笔记本数据合并专家。merge_data.py 的 canonical_model_family 归一化不完整，导致以下 ZOL×PConline 兼容配置机型未合并。",
               "已知根因：PConline 加'酷睿'前缀 ZOL 省略；屏幕规格后缀(/2.5K /240Hz /OLED)未剥离；大小写/空格差异(Redmi vs REDMI、Pro vs PRO、R9 vs 锐龙9)。",
-              "生成 scripts/merge_data.py 的最小补丁：增强 canonical_model_family 归一化（去 CPU 前缀词、剥屏幕后缀、统一大小写空白），不得破坏现有测试。",
+              "请精确列出需要新增的归一化规则（不要代码、不要 diff），按以下 JSON 格式输出：",
+              '{"rules": [{"type": "strip_prefix", "tokens": ["酷睿", "Intel", "英特尔"]}, {"type": "strip_suffix", "pattern": "/(\\d+(\\.\\d+)?K|\\d+Hz|OLED|\\d+K屏)"}, {"type": "normalize_case", "detail": "统一小写、去空格连字符、Pro/PRO→pro"}], "reasoning": "...", "confidence": 0-1}',
               "当前未合并的兼容重叠：",
           ]
           for o in overlaps[:20]:
               lines.append(f"- ZOL: {o['a_title']} || PConline: {o['b_title']}")
-          lines.append('输出：单个 JSON 对象 {"patch": "<unified diff>", "reasoning": "...", "confidence": 0-1}')
+          lines.append('只输出上述 JSON 对象，不要其它内容。')
           Path('mse_prompt.md').write_text("\n".join(lines), encoding='utf-8')
           print(f"GAP_COUNT={len(overlaps)}")
           with open('gap_count.txt', 'w', encoding='utf-8') as f:
@@ -134,7 +135,7 @@ jobs:
           OPENCODE_CONFIG_CONTENT: >-
             {"autoupdate":false,"provider":{"volcengine-agentplan":{"npm":"@ai-sdk/openai-compatible","name":"Volcengine AgentPlan","options":{"baseURL":"https://ark.cn-beijing.volces.com/api/plan/v3","apiKey":"{env:VOLCENGINE_AGENTPLAN_API_KEY}"},"models":{"deepseek-v4-flash":{"limit":{"context":262144,"output":32768}}}}},"agent":{"plan":{"model":"volcengine-agentplan/deepseek-v4-flash","permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}},"permission":{"*":"deny","read":"allow","edit":"deny","bash":"deny","webfetch":"deny","task":"deny","question":"deny","external_directory":"deny"}}
         run: >-
-          opencode run --pure --agent plan --model volcengine-agentplan/deepseek-v4-flash --format default --dir "$RUNNER_TEMP/opencode-agent" "Return one JSON object: {patch, reasoning, confidence}. Do not call tools or modify files." --file prompt.md > mse_patch_out.json
+          opencode run --pure --agent plan --model volcengine-agentplan/deepseek-v4-flash --format default --dir "$RUNNER_TEMP/opencode-agent" "Return one JSON object: {rules, reasoning, confidence}. Do not call tools or modify files." --file prompt.md > mse_patch_out.json
 
       - name: Apply, test, review, commit, trigger merge
         if: steps.mse_agent.outcome == 'success'
