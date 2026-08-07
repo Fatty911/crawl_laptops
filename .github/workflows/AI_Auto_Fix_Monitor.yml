@@ -2,7 +2,7 @@ name: AI Auto Fix Monitor
 
 on:
   workflow_run:
-    workflows: ["Crawl ZOL", "Crawl JD", "Crawl PConline"]
+    workflows: ["Crawl ZOL", "Crawl JD", "Crawl PConline", "Merge and Filter", "Deploy Pages", "CI"]
     types: [completed]
 
 permissions:
@@ -180,6 +180,41 @@ jobs:
             fi
           fi
 
+      - name: Detect and cancel zombie runs
+        if: always()
+        continue-on-error: true
+        run: |-
+          # 检测 in_progress 但 25 分钟无 updatedAt 更新的 run（runner 掉线特征）
+          python - <<'PYEOF'
+          import json, os, subprocess, datetime
+
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          if not repo:
+              raise SystemExit(0)
+          now = datetime.datetime.now(datetime.timezone.utc)
+          out = subprocess.run(
+              ["gh", "run", "list", "--repo", repo, "--limit", "15",
+               "--json", "databaseId,status,updatedAt,workflowName"],
+              capture_output=True, text=True, timeout=60,
+          )
+          if out.returncode != 0:
+              print("gh run list failed:", out.stderr[:200])
+              raise SystemExit(0)
+          for run in json.loads(out.stdout):
+              if run.get("status") != "in_progress":
+                  continue
+              updated = datetime.datetime.fromisoformat(
+                  run["updatedAt"].replace("Z", "+00:00"))
+              age = (now - updated).total_seconds()
+              if age > 1500:  # 25 分钟无更新
+                  print(f"!! zombie run {run['databaseId']} "
+                        f"({run['workflowName']}) no update for {int(age)}s; cancelling")
+                  subprocess.run(
+                      ["gh", "run", "cancel", str(run["databaseId"]), "--repo", repo],
+                      capture_output=True, text=True, timeout=60,
+                  )
+          PYEOF
+
       - name: Prepare repair prompt
         id: repair_prompt
         if: >-
@@ -231,6 +266,9 @@ jobs:
             "Crawl ZOL") WF_FILE="crawl-zol.yml" ;;
             "Crawl JD") WF_FILE="crawl-jd.yml" ;;
             "Crawl PConline") WF_FILE="crawl-pconline.yml" ;;
+            "Merge and Filter") WF_FILE="merge-and-filter.yml" ;;
+            "Deploy Pages") WF_FILE="deploy-pages.yml" ;;
+            "CI") WF_FILE="ci.yml" ;;
             *) WF_FILE="crawl-zol.yml" ;;
           esac
           python scripts/self_repair_runner.py             --patch-file repair_patch.json             --classification "${{ steps.classify.outputs.classification }}"             --reason "${{ steps.classify.outputs.reason }}"             --workflow-name "${{ env.WORKFLOW_NAME }}"             --workflow-file "$WF_FILE"             --run-id "${{ env.WORKFLOW_RUN_ID }}"             --attempt-marker "self-repair-${{ env.WORKFLOW_RUN_ID }}-${{ env.WORKFLOW_HEAD_SHA }}"

@@ -1,0 +1,72 @@
+name: Self-Repair Watchdog
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+concurrency:
+  group: self-repair-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@main
+        with:
+          persist-credentials: false
+
+      - name: Cancel zombie runs
+        id: cancel
+        continue-on-error: true
+        run: |-
+          python - <<'PYEOF'
+          import json, os, subprocess, datetime
+
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          now = datetime.datetime.now(datetime.timezone.utc)
+          out = subprocess.run(
+              ["gh", "run", "list", "--repo", repo, "--limit", "20",
+               "--json", "databaseId,status,updatedAt,workflowName,conclusion"],
+              capture_output=True, text=True, timeout=60,
+          )
+          if out.returncode != 0:
+              print("gh run list failed:", out.stderr[:200])
+              raise SystemExit(0)
+          zombies = 0
+          for run in json.loads(out.stdout):
+              if run.get("status") != "in_progress":
+                  continue
+              updated = datetime.datetime.fromisoformat(
+                  run["updatedAt"].replace("Z", "+00:00"))
+              age = (now - updated).total_seconds()
+              if age > 1500:  # 25 分钟无更新 = runner 掉线
+                  zombies += 1
+                  print(f"!! zombie run {run['databaseId']} "
+                        f"({run['workflowName']}) no update for {int(age)}s; cancelling")
+                  subprocess.run(
+                      ["gh", "run", "cancel", str(run["databaseId"]), "--repo", repo],
+                      capture_output=True, text=True, timeout=60,
+                  )
+          print(f"watchdog: {zombies} zombie run(s) cancelled")
+          with open(os.environ.get("GITHUB_OUTPUT", "/dev/null"), "a") as f:
+              f.write(f"zombies={zombies}\n")
+          PYEOF
+
+      - name: Report zombie cancellation
+        if: steps.cancel.outputs.zombies != '' && steps.cancel.outputs.zombies != '0'
+        run: |-
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "自修复看门狗：取消 ${{ steps.cancel.outputs.zombies }} 个僵尸 workflow run" \
+            --label "crawl-failure-diagnosis" \
+            --body "看门狗检测到 runner 掉线的僵尸 run（in_progress 但 25 分钟无更新）并已自动取消。爬虫数据流可能中断，请检查是否需要重新触发。" || true

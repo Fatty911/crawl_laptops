@@ -814,7 +814,9 @@ def main() -> int:
         print("working-tree validation passed")
         return 0
     if not args.data or not args.base_sha or not args.chain_id or args.round < 1:
-        parser.error("--data, --base-sha, --chain-id and --round are required for proposal mode")
+        # 无数据/上下文时优雅跳过（如 Pages 数据落后于 main 时），不报错退出
+        print("single_source_repair: missing proposal context; skipping (no eligible data)")
+        return 0
     return propose(args)
 
 
