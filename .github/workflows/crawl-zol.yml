@@ -118,6 +118,20 @@ jobs:
             exit 0
           fi
           set +e
+          # 心跳：每 20 分钟提交并推送 crawl_state（提供外部活性信号，供 watchdog 判定；
+          # [skip ci] 约定不触发 CI）
+          (
+            while true; do
+              sleep 1200
+              git add -f crawl_state/zol/ 2>/dev/null
+              git diff --cached --quiet 2>/dev/null || {
+                git commit -q -m "chore: ZOL crawl heartbeat [skip ci]" 2>/dev/null
+                git pull --rebase origin main 2>/dev/null
+                git push origin main 2>/dev/null
+              }
+            done
+          ) &
+          HEARTBEAT_PID=$!
           python scripts/crawl_zol.py \
             --output data/raw/zol/latest.json \
             --progress-dir crawl_state/zol \
@@ -126,6 +140,8 @@ jobs:
             --max-items "$MAX_ITEMS" \
             --min-records 50
           EXIT_CODE=$?
+          kill $HEARTBEAT_PID 2>/dev/null
+          wait $HEARTBEAT_PID 2>/dev/null
           set -e
           echo "ZOL crawl exit code: $EXIT_CODE"
           git config user.name "github-actions[bot]"
