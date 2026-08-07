@@ -131,6 +131,41 @@ def test_fetch_retry_switches_node_on_blocked_page(tmp_path, monkeypatch):
     assert fetch_calls == ["node-a", "node-b"]  # 先 a 后 b
 
 
+def test_crawl_max_items_zero_is_unlimited(tmp_path, monkeypatch):
+    """max_items=0（长任务不限量）不得在第一个 item 后截断。"""
+    from bs4 import BeautifulSoup
+
+    def make_soup(rows: int):
+        cards = "".join(
+            f'<li class="item-title"><a href="//product.pconline.com.cn/notebook/hp/{1000+i}.html">'
+            f"惠普测试笔记本 {i} 型号（酷睿 i7）</a></li>"
+            for i in range(rows)
+        )
+        return BeautifulSoup(f'<html><body><ul id="J_ProductList">{cards}</ul></body></html>', "html.parser")
+
+    fetch_count = {"n": 0}
+
+    def fake_get_html(session, url, encoding=None, delay=0.0, timeout=25):
+        fetch_count["n"] += 1
+        page = fetch_count["n"]
+        base = 1000 + (page - 1) * 100  # 每页不同 product_id
+        cards = "".join(
+            f'<li class="item-title"><a href="//product.pconline.com.cn/notebook/hp/{base+i}.html">'
+            f"惠普测试笔记本 {page}-{i} 型号（酷睿 i7）</a></li>"
+            for i in range(25)
+        )
+        return BeautifulSoup(f'<html><body><ul id="J_ProductList">{cards}</ul></body></html>', "html.parser"), url
+
+    monkeypatch.setattr(pcl, "get_html", fake_get_html)
+    monkeypatch.setattr(pcl, "_mihomo_controller_ready", lambda: False)  # 无 mihomo 走旧路径
+    monkeypatch.setattr(pcl, "enrich_item", lambda session, item, delay: dict(item))
+    monkeypatch.setattr(pcl, "utc_now", lambda: "2026-08-07T00:00:00Z")
+
+    items = pcl.crawl(pages=2, max_items=0, delay=0.0, time_limit=0)
+    assert len(items) == 50  # 2 页 × 25 条，max_items=0 不截断
+    assert fetch_count["n"] == 2
+
+
 def test_fetch_retry_all_blocked_returns_empty(tmp_path, monkeypatch):
     from bs4 import BeautifulSoup
 

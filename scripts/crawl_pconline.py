@@ -412,9 +412,9 @@ def crawl(
             if key not in seen:
                 seen.add(key)
                 items.append(item)
-            if len(items) >= max_items:
+            if max_items and len(items) >= max_items:
                 break
-        if len(items) >= max_items:
+        if max_items and len(items) >= max_items:
             break
     for index, item in enumerate(items):
         if budget.expired():
