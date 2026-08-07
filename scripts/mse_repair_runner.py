@@ -115,7 +115,8 @@ def commit_with_trailers(diff_sha: str, reviews: list[dict], message: str) -> bo
     # runner 环境 git 无 author 配置；按仓库规则使用 Fatty911 身份
     _run(["git", "config", "user.name", "Fatty911"], cwd=ROOT)
     _run(["git", "config", "user.email", "xuerui911@gmail.com"], cwd=ROOT)
-    _run(["git", "add", "-A"], cwd=ROOT)
+    # 只提交 merge_data.py（中间产物 mse_*.json/md 不入库）
+    _run(["git", "add", "scripts/merge_data.py"], cwd=ROOT)
     trailers = []
     for i, rv in enumerate(reviews, 1):
         trailers.append(f"Review-Model-Family-{i}: {rv['family']}")

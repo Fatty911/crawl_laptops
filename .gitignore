@@ -16,3 +16,10 @@ scripts/.monitor_count
 scripts/monitor.log
 scripts/monitor_*.log
 crawl_state/
+
+# 运行时中间产物
+mse_patch_out.json
+mse_prompt.md
+gap_count.txt
+mse_summary.txt
+mse_agent_dir/
