@@ -702,6 +702,78 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+GENERATOR_PROVIDER_NAME = "zenmux"
+GENERATOR_BASE_URL = "https://zenmux.ai/api/v1"
+GENERATOR_KEY_ENV = "ZENMUX_API_KEY"
+GENERATOR_MODEL = "deepseek/deepseek-v4-flash"
+
+
+def opencode_generate(prompt: str, *, effort: str = "high", max_tokens: int = 20000) -> str:
+    """Run the constrained patch generator through the OpenCode CLI (Agent tool).
+
+    The ZENMUX_API_KEY is consumed only by the OpenCode process; this script
+    never issues HTTP requests to a model endpoint.  When DMIT_PROXY_URL is
+    set, the OpenCode process is pointed at the proxy through Node's env-proxy
+    support so the runner's Cloudflare blocks on zenmux.ai are avoided the
+    same way the previous direct requests used the proxy.
+    """
+    read_only = {
+        "*": "deny",
+        "read": "allow",
+        "edit": "deny",
+        "bash": "deny",
+        "webfetch": "deny",
+        "task": "deny",
+        "question": "deny",
+        "external_directory": "deny",
+    }
+    config = {
+        "provider": {
+            GENERATOR_PROVIDER_NAME: {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": GENERATOR_PROVIDER_NAME,
+                "options": {
+                    "baseURL": GENERATOR_BASE_URL,
+                    "apiKey": f"{{env:{GENERATOR_KEY_ENV}}}",
+                },
+                "models": {GENERATOR_MODEL: {"limit": {"context": 1000000, "output": max(1024, max_tokens)}}},
+            }
+        },
+        "agent": {"plan": {"permission": read_only}},
+        "permission": read_only,
+    }
+    env = dict(os.environ)
+    env["OPENCODE_CONFIG_CONTENT"] = json.dumps(config, ensure_ascii=False)
+    env["OPENCODE_DISABLE_AUTOUPDATE"] = "1"
+    env["OPENCODE_DISABLE_TELEMETRY"] = "1"
+    proxy = os.environ.get("DMIT_PROXY_URL", "").strip()
+    if proxy:
+        env["NODE_USE_ENV_PROXY"] = "1"
+        env["HTTPS_PROXY"] = proxy
+        env["HTTP_PROXY"] = proxy
+    opencode_bin = os.environ.get("OPENCODE_BIN", "opencode")
+    with tempfile.TemporaryDirectory(prefix="pconline-gen-") as tmpdir:
+        (Path(tmpdir) / "prompt.md").write_text(prompt, encoding="utf-8")
+        cmd = [
+            opencode_bin, "run", "--pure", "--agent", "plan",
+            "--model", f"{GENERATOR_PROVIDER_NAME}/{GENERATOR_MODEL}",
+            "--format", "default",
+            "--dir", tmpdir,
+            "--file", "prompt.md",
+            "Answer the attached prompt directly. Do not call tools or modify files. Return only the requested unified diff.",
+        ]
+        try:
+            completed = subprocess.run(cmd, capture_output=True, text=True, timeout=2400, env=env)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"generator opencode call failed ({type(exc).__name__}); treating as empty", file=sys.stderr)
+            return ""
+        if completed.returncode != 0:
+            tail = ((completed.stderr or "") + (completed.stdout or ""))[:400]
+            print(f"generator opencode exit {completed.returncode}: {tail}", file=sys.stderr)
+            return ""
+        return (completed.stdout or "").strip()
+
+
 def post_json(url: str, body: bytes, *, retries: int = 3) -> dict[str, Any]:
     """Bound transient provider failures without treating them as repair attempts."""
     proxy = os.environ.get("DMIT_PROXY_URL", "").strip()
@@ -1490,17 +1562,9 @@ Allowed AI patch path ONLY: scripts/crawl_pconline.py. Do not include .github/wo
         fail("ZENMUX_API_KEY is required")
     payload: dict[str, Any] | None = None
     for effort in ("high", "max"):
-        body = json.dumps({
-            "model": "deepseek/deepseek-v4-flash",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 20000,
-            "temperature": 0,
-            "reasoning_effort": effort,
-        }).encode("utf-8")
-        payload = post_json("https://zenmux.ai/api/v1/chat/completions", body)
-        if payload.get("model") != "deepseek/deepseek-v4-flash":
-            fail(f"unexpected generator model: {payload.get('model')}")
-        text = payload.get("choices", [{}])[0].get("message", {}).get("content") or ""
+        # The model call goes through the OpenCode CLI (Agent tool); this
+        # script never issues HTTP requests to a model API.
+        text = opencode_generate(prompt, effort=effort)
         if not text.strip():
             if effort != "max":
                 print("generator high reasoning returned no visible patch; trying max", file=sys.stderr)

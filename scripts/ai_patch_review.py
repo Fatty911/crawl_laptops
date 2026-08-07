@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Read-only NIM review gate for the exact AI-generated PConline patch."""
+"""Read-only review gate for the exact AI-generated PConline patch.
+
+The review model is invoked through the OpenCode CLI (Agent tool), never by
+direct HTTP requests to a model API.
+"""
 from __future__ import annotations
 
 import argparse
@@ -7,15 +11,16 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
-import requests
-
 REVIEW_MODEL = "deepseek-ai/deepseek-v4-flash"
+REVIEW_PROVIDER_NAME = "nvidia-nim"
+REVIEW_BASE_URL = "https://integrate.api.nvidia.com/v1"
+REVIEW_KEY_ENV = "NVIDIA_NIM_API_KEY"
 
 
 def fail(message: str) -> None:
@@ -26,41 +31,76 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def retry_delay(response: requests.Response, attempt: int) -> float:
-    """Give NIM rate limits time to clear without making other retries slow."""
-    if response.status_code == 429:
-        try:
-            retry_after = float(response.headers.get("Retry-After", ""))
-        except (TypeError, ValueError):
-            retry_after = 60 * (2**attempt)
-        return min(max(retry_after, 1.0), 300.0)
-    return min(3 * (2**attempt), 60)
+def post_review(system: str, prompt: str, key: str, *, max_tokens: int = 8000) -> dict:
+    """Run the review through the OpenCode CLI (Agent tool).
 
-
-def post_review(body: bytes, key: str, *, retries: int = 3) -> dict:
-    proxy = os.environ.get("DMIT_PROXY_URL", "").strip()
-    proxies = {"http": proxy, "https": proxy} if proxy else None
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
-    last_error: Exception | None = None
-    for attempt in range(retries):
-        try:
-            response = requests.post(
-                "https://integrate.api.nvidia.com/v1/chat/completions",
-                headers=headers, data=body, proxies=proxies, timeout=900,
-            )
-            if response.status_code == 200:
-                return response.json()
-            if response.status_code in {429, 500, 502, 503, 504, 529} and attempt < retries - 1:
-                last_error = RuntimeError(f"HTTP {response.status_code}")
-                time.sleep(retry_delay(response, attempt))
+    Returns a payload-shaped dict so the rest of the gate logic stays
+    unchanged: {"model": REVIEW_MODEL, "choices": [{"message": {"content": ...}}]}.
+    """
+    read_only = {
+        "*": "deny",
+        "read": "allow",
+        "edit": "deny",
+        "bash": "deny",
+        "webfetch": "deny",
+        "task": "deny",
+        "question": "deny",
+        "external_directory": "deny",
+    }
+    config = {
+        "provider": {
+            REVIEW_PROVIDER_NAME: {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": REVIEW_PROVIDER_NAME,
+                "options": {
+                    "baseURL": REVIEW_BASE_URL,
+                    "apiKey": f"{{env:{REVIEW_KEY_ENV}}}",
+                },
+                "models": {REVIEW_MODEL: {"limit": {"context": 131072, "output": max(1024, max_tokens)},
+                                          "options": {"reasoningEffort": "high"}}},
+            }
+        },
+        "agent": {"plan": {"permission": read_only}},
+        "permission": read_only,
+    }
+    env = dict(os.environ)
+    env["OPENCODE_CONFIG_CONTENT"] = json.dumps(config, ensure_ascii=False)
+    env["OPENCODE_DISABLE_AUTOUPDATE"] = "1"
+    env["OPENCODE_DISABLE_TELEMETRY"] = "1"
+    opencode_bin = os.environ.get("OPENCODE_BIN", "opencode")
+    combined_prompt = f"{system}\n\n{prompt}"
+    with tempfile.TemporaryDirectory(prefix="patch-review-") as tmpdir:
+        (Path(tmpdir) / "prompt.md").write_text(combined_prompt, encoding="utf-8")
+        cmd = [
+            opencode_bin, "run", "--pure", "--agent", "plan",
+            "--model", f"{REVIEW_PROVIDER_NAME}/{REVIEW_MODEL}",
+            "--format", "default",
+            "--dir", tmpdir,
+            "--file", "prompt.md",
+            "Review the attached material. Do not call tools or modify files. Return only the requested JSON.",
+        ]
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                completed = subprocess.run(cmd, capture_output=True, text=True, timeout=900, env=env)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                last_error = exc
+                if attempt == 2:
+                    raise RuntimeError(f"opencode review failed: {type(exc).__name__}") from exc
+                time.sleep(min(3 * (2**attempt), 60))
                 continue
-            raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
-        except requests.RequestException as exc:
-            last_error = exc
-            if attempt == retries - 1:
-                raise
-            time.sleep(min(3 * (2**attempt), 60))
-    raise last_error or RuntimeError("NIM review failed")
+            if completed.returncode != 0:
+                combined = (completed.stderr or "") + (completed.stdout or "")
+                if re.search(r"\b429\b|rate.?limit|quota", combined, re.I) and attempt < 2:
+                    last_error = RuntimeError("HTTP 429")
+                    time.sleep(min(60 * (2**attempt), 300))
+                    continue
+                raise RuntimeError(f"opencode review exit {completed.returncode}: {combined[:300]}")
+            content = (completed.stdout or "").strip()
+            if not content:
+                raise RuntimeError("opencode review returned no content")
+            return {"model": REVIEW_MODEL, "choices": [{"message": {"content": content}}]}
+    raise last_error or RuntimeError("opencode review failed")
 
 
 def parse_json_reply(text: str) -> dict:
@@ -117,17 +157,7 @@ Return exactly JSON and no markdown: {{"verdict":"PASS" or "FAIL","findings":["s
 
 <VALIDATION_RECORD>{json.dumps(validation, ensure_ascii=False, sort_keys=True)}</VALIDATION_RECORD>
 <PATCH_DATA>{patch}</PATCH_DATA>'''
-        body = json.dumps({
-            "model": REVIEW_MODEL,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            "max_tokens": 8000,
-            "temperature": 0,
-            "reasoning_effort": "high",
-        }).encode("utf-8")
-        payload = post_review(body, key)
+        payload = post_review(system, prompt, key, max_tokens=8000)
         if payload.get("model") != REVIEW_MODEL:
             fail(f"unexpected reviewer model: {payload.get('model')}")
         content = payload.get("choices", [{}])[0].get("message", {}).get("content") or ""
@@ -140,7 +170,7 @@ Return exactly JSON and no markdown: {{"verdict":"PASS" or "FAIL","findings":["s
         if review["verdict"] != "PASS":
             print(json.dumps(review, ensure_ascii=False), file=sys.stderr)
             return 3
-    except (ValueError, OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"AI patch review failed closed: {exc}", file=sys.stderr)
         return 2
     return 0

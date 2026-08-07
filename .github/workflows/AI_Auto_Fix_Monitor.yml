@@ -75,6 +75,16 @@ jobs:
           --prompt-output diagnosis_prompt.md
           --github-output "$GITHUB_OUTPUT"
 
+      - name: Set up Node.js for Agent tools
+        if: steps.classify.outputs.should_diagnose == 'true'
+        uses: actions/setup-node@main
+        with:
+          node-version: "22"
+
+      - name: Install OpenCode CLI (latest, auto-upgrades)
+        if: steps.classify.outputs.should_diagnose == 'true'
+        run: npm install --global opencode-ai@latest
+
       - name: Run configured free endpoints for diagnosis
         id: free_route
         if: steps.classify.outputs.should_diagnose == 'true'
@@ -191,16 +201,6 @@ jobs:
           echo "should_repair=true" >> "$GITHUB_OUTPUT"
           echo "$EXCERPT" > self_repair_excerpt.txt
           python scripts/self_repair_runner.py build-prompt             --log-excerpt "$EXCERPT"             --classification "${{ steps.classify.outputs.classification }}"             --reason "${{ steps.classify.outputs.reason }}"             --prompt-output prompt.md
-
-      - name: Set up Node.js for repair Agent
-        if: steps.repair_prompt.outputs.should_repair == 'true'
-        uses: actions/setup-node@main
-        with:
-          node-version: "22"
-
-      - name: Install fixed OpenCode CLI for repair Agent
-        if: steps.repair_prompt.outputs.should_repair == 'true'
-        run: npm install --global opencode-ai@1.18.11
 
       - name: Prepare isolated repair Agent directory
         if: steps.repair_prompt.outputs.should_repair == 'true'

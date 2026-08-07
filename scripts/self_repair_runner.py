@@ -45,19 +45,20 @@ REVIEW_TRAILER_RESULT_2 = "Review-Result-2"
 REVIEW_TRAILER_DIFF = "Reviewed-Diff-SHA256"
 
 # Review providers: two different families, both more expensive than the
-# main models (deepseek-v4-flash / gpt-5.6-luna), via NIM direct API.
+# main models (deepseek-v4-flash / gpt-5.6-luna), invoked through the
+# OpenCode CLI (Agent tool) against the NIM OpenAI-compatible endpoint.
 # (Fix generation runs through the OpenCode Agent tool in the workflow --
 #  Plan keys must only be consumed by the read-only OpenCode Agent step.)
 REVIEW_PROVIDERS = [
     {
         "name": "nvidia-nim-kimi",
-        "base_url": "https://integrate.api.nvidia.com/v1/chat/completions",
+        "base_url": "https://integrate.api.nvidia.com/v1",
         "env_key": "NVIDIA_NIM_API_KEY",
         "model": "moonshotai/kimi-k2.6",
     },
     {
         "name": "nvidia-nim-glm",
-        "base_url": "https://integrate.api.nvidia.com/v1/chat/completions",
+        "base_url": "https://integrate.api.nvidia.com/v1",
         "env_key": "NVIDIA_NIM_API_KEY",
         "model": "z-ai/glm-5.2",
     },
@@ -120,28 +121,68 @@ def build_review_prompt(diff: str, workflow_name: str, run_id: str) -> str:
 
 
 def call_llm(provider: dict, prompt: str, max_tokens: int = 4000) -> str | None:
-    import urllib.request
+    """通过 OpenCode CLI（Agent 工具）调用评审模型，禁止直连模型 API。
 
+    The provider key is consumed only by the OpenCode process; the script
+    itself never issues HTTP requests to a model endpoint.
+    """
     key = os.environ.get(provider["env_key"], "")
     if not key:
         return None
-    body = json.dumps({
-        "model": provider["model"],
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-    }).encode()
-    req = urllib.request.Request(
-        provider["base_url"], data=body,
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=240) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        content = data["choices"][0]["message"]["content"]
+    base_url = provider["base_url"].rstrip("/")
+    if base_url.endswith("/chat/completions"):
+        base_url = base_url[: -len("/chat/completions")]
+    read_only = {
+        "*": "deny",
+        "read": "allow",
+        "edit": "deny",
+        "bash": "deny",
+        "webfetch": "deny",
+        "task": "deny",
+        "question": "deny",
+        "external_directory": "deny",
+    }
+    config = {
+        "provider": {
+            provider["name"]: {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": provider["name"],
+                "options": {
+                    "baseURL": base_url,
+                    "apiKey": f"{{env:{provider['env_key']}}}",
+                },
+                "models": {provider["model"]: {"limit": {"context": 131072, "output": max(1024, int(max_tokens))}}},
+            }
+        },
+        "agent": {"plan": {"permission": read_only}},
+        "permission": read_only,
+    }
+    env = dict(os.environ)
+    env["OPENCODE_CONFIG_CONTENT"] = json.dumps(config, ensure_ascii=False)
+    env["OPENCODE_DISABLE_AUTOUPDATE"] = "1"
+    env["OPENCODE_DISABLE_TELEMETRY"] = "1"
+    opencode_bin = os.environ.get("OPENCODE_BIN", "opencode")
+    with tempfile.TemporaryDirectory(prefix="self-repair-") as tmpdir:
+        (Path(tmpdir) / "prompt.md").write_text(prompt, encoding="utf-8")
+        cmd = [
+            opencode_bin, "run", "--pure", "--agent", "plan",
+            "--model", f"{provider['name']}/{provider['model']}",
+            "--format", "default",
+            "--dir", tmpdir,
+            "--file", "prompt.md",
+            "Answer the attached prompt directly. Do not call tools or modify files. Return only the requested JSON.",
+        ]
+        try:
+            completed = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
+        except Exception as exc:
+            print(f"[self-repair] {provider['name']} opencode call failed: {type(exc).__name__} {exc}", file=sys.stderr)
+            return None
+        if completed.returncode != 0:
+            tail = (completed.stderr or "")[:300]
+            print(f"[self-repair] {provider['name']} opencode exit {completed.returncode}: {tail}", file=sys.stderr)
+            return None
+        content = (completed.stdout or "").strip()
         return content or None
-    except Exception as exc:
-        print(f"[self-repair] {provider['name']} call failed: {type(exc).__name__} {exc}", file=sys.stderr)
-        return None
 
 
 def parse_fix_response(text: str) -> dict:
