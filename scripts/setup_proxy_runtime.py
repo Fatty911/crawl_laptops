@@ -27,6 +27,11 @@ except ModuleNotFoundError:
 
 
 MIHOMO_API = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
+# 固定版本直链（不经 GitHub API，避免未认证限流 403）；API 仅作 fallback
+MIHOMO_FIXED = {
+    "linux-amd64": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.29/mihomo-linux-amd64-v1.19.29.gz",
+    "linux-amd64-compat": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.29/mihomo-linux-amd64-compatible-v1.19.29.gz",
+}
 GITHUB_NO_PROXY = (
     "127.0.0.1,localhost,api.github.com,github.com,"
     "results-receiver.actions.githubusercontent.com,.blob.core.windows.net"
@@ -173,6 +178,39 @@ def find_mihomo(bin_dir: Path) -> Path | None:
 def download_mihomo(bin_dir: Path) -> Path | None:
     bin_dir.mkdir(parents=True, exist_ok=True)
     target = bin_dir / "mihomo"
+    # 已有缓存则直接复用（workflow 内/runner 缓存）
+    if target.exists() and target.stat().st_size > 1_000_000:
+        print(f"mihomo cached: {target}")
+        return target
+    import platform as _platform
+    import sys as _sys
+
+    machine = _platform.machine().lower()
+    # 固定版本直链优先（不消耗 GitHub API 配额）；失败再走 API
+    candidates = []
+    if machine in ("x86_64", "amd64"):
+        candidates.append(MIHOMO_FIXED["linux-amd64"])
+        candidates.append(MIHOMO_FIXED["linux-amd64-compat"])
+    elif machine in ("aarch64", "arm64"):
+        candidates.append(
+            "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.29/mihomo-linux-arm64-v1.19.29.gz"
+        )
+    for url in candidates:
+        try:
+            request = urllib.request.Request(
+                url, headers={"User-Agent": "crawl-laptops-actions"}
+            )
+            with urllib.request.urlopen(request, timeout=120) as response:
+                raw = response.read()
+            target.write_bytes(gzip.decompress(raw))
+            target.chmod(
+                target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+            )
+            print(f"mihomo ready (fixed release): {target} ({target.stat().st_size} bytes)")
+            return target
+        except Exception as exc:
+            print(f"mihomo fixed download failed: {type(exc).__name__}: {exc}")
+    # API fallback（可能 403 限流）
     try:
         request = urllib.request.Request(
             MIHOMO_API, headers={"User-Agent": "crawl-laptops-actions"}
@@ -190,7 +228,7 @@ def download_mihomo(bin_dir: Path) -> Path | None:
         target.chmod(
             target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
         )
-        print(f"mihomo ready: {target}")
+        print(f"mihomo ready (api): {target}")
         return target
     except Exception as exc:
         print(f"mihomo download failed: {type(exc).__name__}: {exc}")
