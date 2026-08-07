@@ -121,7 +121,9 @@ jobs:
           PYEOF
 
       - name: Prepare isolated repair Agent directory
-        if: steps.mse_scan.outcome == 'success'
+        if: >-
+          steps.mse_scan.outcome == 'success' &&
+          hashFiles('mse_prompt.md') != ''
         run: |
           mkdir -p "$RUNNER_TEMP/opencode-agent"
           cp mse_prompt.md "$RUNNER_TEMP/opencode-agent/prompt.md"
@@ -136,7 +138,9 @@ jobs:
 
       - name: Generate merge fix via Agent (Volcengine AgentPlan)
         id: mse_agent
-        if: steps.mse_scan.outcome == 'success'
+        if: >-
+          steps.mse_scan.outcome == 'success' &&
+          hashFiles('mse_prompt.md') != ''
         continue-on-error: true
         env:
           VOLCENGINE_AGENTPLAN_API_KEY: ${{ secrets.VOLCENGINE_AGENTPLAN_API_KEY }}
