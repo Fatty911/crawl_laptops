@@ -1229,51 +1229,153 @@
   ],
   "raw_overlaps": [
     {
-      "identity_key": "9e77ef38e6c340df876910e0",
+      "identity_key": "6c95938e567fc8bca8bd07f4",
       "sources": [
         "ZOL",
         "PConline"
       ],
       "kind": "compatible",
       "reason": "memory/storage consistent",
-      "a_title": "荣耀MagicBook Pro 16 2025(Ultra5 225H/32GB/1TB)",
-      "b_title": "荣耀MagicBook Pro 16 2025(酷睿Ultra5 225H/32GB/1TB)",
-      "a_cpu": "Intel 酷睿Ultra5 225H",
-      "b_cpu": "荣耀MagicBook Pro 16 2025(酷睿Ultra5 225H/32GB/1TB)",
+      "a_title": "惠普星Book Pro Air 14(Ultra 5 225H/16GB/512GB)",
+      "b_title": "惠普星Book Pro Air 14(酷睿Ultra5 225H/16GB/512GB/2.8K/120Hz)",
+      "a_cpu": "Intel 酷睿Ultra 5 225H",
+      "b_cpu": "惠普星Book Pro Air 14(酷睿Ultra5 225H/16GB/512GB/2.8K/120Hz)",
+      "a_memory_gb": 16,
+      "b_memory_gb": 16,
+      "a_storage_gb": 512,
+      "b_storage_gb": 512
+    },
+    {
+      "identity_key": "d6653f5207346a2dee0b2919",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "incompatible",
+      "reason": "storage 1024.0GB vs 512.0GB",
+      "a_title": "惠普HyperX 暗影精灵 Pro 16酷睿版 (Ultra7 255HX/16GB/1TB/RTX5060)",
+      "b_title": "惠普HyperX 暗影精灵PRO 16酷睿版(酷睿Ultra7 255HX/16GB/512GB/RTX5060/240Hz)",
+      "a_cpu": "Ultra 7 255HX",
+      "b_cpu": "惠普HyperX 暗影精灵PRO 16酷睿版(酷睿Ultra7 255HX/16GB/512GB/RTX5060/240Hz)",
+      "a_memory_gb": 16,
+      "b_memory_gb": 16,
+      "a_storage_gb": 1024,
+      "b_storage_gb": 512
+    },
+    {
+      "identity_key": "f939224e2a471ac1e6e0c415",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "incompatible",
+      "reason": "storage 1024.0GB vs 2048.0GB",
+      "a_title": "华为MateBook Pro(32GB/1TB/柔光版)",
+      "b_title": "华为MateBook Pro(32GB/2TB/柔光版)",
+      "a_cpu": "华为MateBook Pro(32GB/1TB/柔光版)",
+      "b_cpu": "华为MateBook Pro(32GB/2TB/柔光版)",
       "a_memory_gb": 32,
       "b_memory_gb": 32,
       "a_storage_gb": 1024,
-      "b_storage_gb": 1024
+      "b_storage_gb": 2048
     },
     {
-      "identity_key": "c232c6b938c7c89d255910c1",
+      "identity_key": "a171ec6b065a6e250daf6985",
       "sources": [
         "ZOL",
         "PConline"
       ],
       "kind": "compatible",
       "reason": "memory/storage consistent",
-      "a_title": "联想拯救者Y9000P 2026(i9-14900HX/16GB/1TB/RTX5060)",
-      "b_title": "联想拯救者Y9000P 2026(酷睿i9-14900HX/16GB/1TB/RTX5060/2.5K/240Hz)",
-      "a_cpu": "14900HX",
-      "b_cpu": "14900HX",
+      "a_title": "华硕天选6 Pro 锐龙版(锐龙9 9955HX/16GB/1TB/RTX5060)",
+      "b_title": "华硕天选6 Pro 锐龙版(R9-9955HX/16GB/1TB/RTX5060/2.5K/165Hz)",
+      "a_cpu": "Ryzen 9 9955HX",
+      "b_cpu": "9955HX",
       "a_memory_gb": 16,
       "b_memory_gb": 16,
       "a_storage_gb": 1024,
       "b_storage_gb": 1024
     },
     {
-      "identity_key": "668fc024ee14b0232ef0f513",
+      "identity_key": "3d3844fec0c223b8cf016413",
       "sources": [
         "ZOL",
         "PConline"
       ],
       "kind": "compatible",
       "reason": "memory/storage consistent",
-      "a_title": "华为MateBook Pro(32GB/1TB)",
-      "b_title": "华为MateBook Pro(32GB/1TB)",
-      "a_cpu": "华为MateBook Pro(32GB/1TB)",
-      "b_cpu": "华为MateBook Pro(32GB/1TB)",
+      "a_title": "荣耀MagicBook Art 14 2025(Ultra5 225H/32GB/1TB)",
+      "b_title": "荣耀MagicBook Art 14 2025(酷睿Ultra5 225H/32GB/1TB)",
+      "a_cpu": "Intel 酷睿Ultra 5 Processor 225H",
+      "b_cpu": "荣耀MagicBook Art 14 2025(酷睿Ultra5 225H/32GB/1TB)",
+      "a_memory_gb": 32,
+      "b_memory_gb": 32,
+      "a_storage_gb": 1024,
+      "b_storage_gb": 1024
+    },
+    {
+      "identity_key": "06892635da2b991ead57f16e",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "incompatible",
+      "reason": "storage 1024.0GB vs 512.0GB",
+      "a_title": "神舟战神T12 Pro(i9 14900HX/32GB/1TB/RTX5090)",
+      "b_title": "神舟战神T12 Pro(酷睿i9-14900HX/32GB/1TB/RTX5090/2.5K/300Hz)",
+      "a_cpu": "14900HX",
+      "b_cpu": "14900HX",
+      "a_memory_gb": 32,
+      "b_memory_gb": 32,
+      "a_storage_gb": 1024,
+      "b_storage_gb": 512
+    },
+    {
+      "identity_key": "0778e190585ebc916363a110",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "compatible",
+      "reason": "memory/storage consistent",
+      "a_title": "华硕天选6 Pro 锐龙版(锐龙9 8940HX/16GB/1TB/RTX5060)",
+      "b_title": "华硕天选6 Pro 锐龙版(R9-8940HX/16GB/1TB/RTX5060/2.5K/165Hz)",
+      "a_cpu": "Ryzen 9 8940HX",
+      "b_cpu": "8940HX",
+      "a_memory_gb": 16,
+      "b_memory_gb": 16,
+      "a_storage_gb": 1024,
+      "b_storage_gb": 1024
+    },
+    {
+      "identity_key": "eebd02e66968f1dede7cccbf",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "compatible",
+      "reason": "memory/storage consistent",
+      "a_title": "惠普HyperX 暗影精灵 Pro 15酷睿版 (Ultra7 255HX/16GB/1TB/RTX5060)",
+      "b_title": "惠普HyperX 暗影精灵PRO 15酷睿版(酷睿Ultra7 255HX/16GB/1TB/RTX5060/180Hz)",
+      "a_cpu": "Ultra 7 255HX",
+      "b_cpu": "惠普HyperX 暗影精灵PRO 15酷睿版(酷睿Ultra7 255HX/16GB/1TB/RTX5060/180Hz)",
+      "a_memory_gb": 16,
+      "b_memory_gb": 16,
+      "a_storage_gb": 1024,
+      "b_storage_gb": 1024
+    },
+    {
+      "identity_key": "a0e80d9cd5e6633c9f34ea15",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "compatible",
+      "reason": "memory/storage consistent",
+      "a_title": "Redmi Book Pro 16 2025(Ultra5-225H/32GB/1TB/2.5K)",
+      "b_title": "REDMI Book Pro 16 2025(Ultra 5 225H/32GB/1TB/2.5K屏)",
+      "a_cpu": "Intel 酷睿Ultra 5 225H",
+      "b_cpu": "Ultra 5 225H",
       "a_memory_gb": 32,
       "b_memory_gb": 32,
       "a_storage_gb": 1024,
@@ -1297,206 +1399,19 @@
       "b_storage_gb": 512
     },
     {
-      "identity_key": "a0e80d9cd5e6633c9f34ea15",
+      "identity_key": "668fc024ee14b0232ef0f513",
       "sources": [
         "ZOL",
         "PConline"
       ],
       "kind": "compatible",
       "reason": "memory/storage consistent",
-      "a_title": "Redmi Book Pro 16 2025(Ultra5-225H/32GB/1TB/2.5K)",
-      "b_title": "REDMI Book Pro 16 2025(Ultra 5 225H/32GB/1TB/2.5K屏)",
-      "a_cpu": "Intel 酷睿Ultra 5 225H",
-      "b_cpu": "Ultra 5 225H",
+      "a_title": "华为MateBook Pro(32GB/1TB)",
+      "b_title": "华为MateBook Pro(32GB/1TB)",
+      "a_cpu": "华为MateBook Pro(32GB/1TB)",
+      "b_cpu": "华为MateBook Pro(32GB/1TB)",
       "a_memory_gb": 32,
       "b_memory_gb": 32,
-      "a_storage_gb": 1024,
-      "b_storage_gb": 1024
-    },
-    {
-      "identity_key": "d6653f5207346a2dee0b2919",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "incompatible",
-      "reason": "storage 1024.0GB vs 512.0GB",
-      "a_title": "惠普HyperX 暗影精灵 Pro 16酷睿版 (Ultra7 255HX/16GB/1TB/RTX5060)",
-      "b_title": "惠普HyperX 暗影精灵PRO 16酷睿版(酷睿Ultra7 255HX/16GB/512GB/RTX5060/240Hz)",
-      "a_cpu": "Ultra 7 255HX",
-      "b_cpu": "惠普HyperX 暗影精灵PRO 16酷睿版(酷睿Ultra7 255HX/16GB/512GB/RTX5060/240Hz)",
-      "a_memory_gb": 16,
-      "b_memory_gb": 16,
-      "a_storage_gb": 1024,
-      "b_storage_gb": 512
-    },
-    {
-      "identity_key": "eebd02e66968f1dede7cccbf",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "compatible",
-      "reason": "memory/storage consistent",
-      "a_title": "惠普HyperX 暗影精灵 Pro 15酷睿版 (Ultra7 255HX/16GB/1TB/RTX5060)",
-      "b_title": "惠普HyperX 暗影精灵PRO 15酷睿版(酷睿Ultra7 255HX/16GB/1TB/RTX5060/180Hz)",
-      "a_cpu": "Ultra 7 255HX",
-      "b_cpu": "惠普HyperX 暗影精灵PRO 15酷睿版(酷睿Ultra7 255HX/16GB/1TB/RTX5060/180Hz)",
-      "a_memory_gb": 16,
-      "b_memory_gb": 16,
-      "a_storage_gb": 1024,
-      "b_storage_gb": 1024
-    },
-    {
-      "identity_key": "6c95938e567fc8bca8bd07f4",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "compatible",
-      "reason": "memory/storage consistent",
-      "a_title": "惠普星Book Pro Air 14(Ultra 5 225H/16GB/512GB)",
-      "b_title": "惠普星Book Pro Air 14(酷睿Ultra5 225H/16GB/512GB/2.8K/120Hz)",
-      "a_cpu": "Intel 酷睿Ultra 5 225H",
-      "b_cpu": "惠普星Book Pro Air 14(酷睿Ultra5 225H/16GB/512GB/2.8K/120Hz)",
-      "a_memory_gb": 16,
-      "b_memory_gb": 16,
-      "a_storage_gb": 512,
-      "b_storage_gb": 512
-    },
-    {
-      "identity_key": "8f63366c5c735ad350eeab2f",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "compatible",
-      "reason": "memory/storage consistent",
-      "a_title": "惠普星Book Pro Air 14(Ultra 7 255H/32GB/1TB)",
-      "b_title": "惠普星Book Pro Air 14(酷睿Ultra7 255H/32GB/1TB/2.8K/120Hz)",
-      "a_cpu": "Intel 酷睿Ultra 7 255H",
-      "b_cpu": "惠普星Book Pro Air 14(酷睿Ultra7 255H/32GB/1TB/2.8K/120Hz)",
-      "a_memory_gb": 32,
-      "b_memory_gb": 32,
-      "a_storage_gb": 1024,
-      "b_storage_gb": 1024
-    },
-    {
-      "identity_key": "4f2c0c3fa820f8484d211e57",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "compatible",
-      "reason": "memory/storage consistent",
-      "a_title": "联想拯救者R7000P 2025(锐龙9 8940HX/16GB/1TB/RTX5060)",
-      "b_title": "联想拯救者R7000P 2025(R9-8940HX/16GB/1TB/RTX5060/2.5K/240Hz)",
-      "a_cpu": "Ryzen 9 8940HX",
-      "b_cpu": "8940HX",
-      "a_memory_gb": 16,
-      "b_memory_gb": 16,
-      "a_storage_gb": 1024,
-      "b_storage_gb": 1024
-    },
-    {
-      "identity_key": "229ff659dd1ef394afd8be0b",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "incompatible",
-      "reason": "memory 64.0GB vs 192.0GB; storage 2048.0GB vs 4096.0GB",
-      "a_title": "联想拯救者 创世(Ultra 9 290HX Plus/64GB/2TB/RTX5090)",
-      "b_title": "联想拯救者 创世(酷睿Ultra9 290HX Plus/192GB/4TB/RTX5090/4K/240Hz)",
-      "a_cpu": "Intel 酷睿Ultra 9 290HX Plus",
-      "b_cpu": "联想拯救者 创世(酷睿Ultra9 290HX Plus/192GB/4TB/RTX5090/4K/240Hz)",
-      "a_memory_gb": 64,
-      "b_memory_gb": 192,
-      "a_storage_gb": 2048,
-      "b_storage_gb": 4096
-    },
-    {
-      "identity_key": "251779e2b6c03e4dbb31bea9",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "incompatible",
-      "reason": "storage 512.0GB vs 1024.0GB",
-      "a_title": "华硕天选7 Pro 酷睿版(酷睿Ultra 7 251HX 16GB/512GB/RTX5060/日蚀灰)",
-      "b_title": "华硕天选7 Pro 酷睿版(酷睿Ultra7 251HX/16GB/1TB/RTX5070/2.5K/300Hz)",
-      "a_cpu": "Intel 酷睿Ultra 7 251HX",
-      "b_cpu": "华硕天选7 Pro 酷睿版(酷睿Ultra7 251HX/16GB/1TB/RTX5070/2.5K/300Hz)",
-      "a_memory_gb": 16,
-      "b_memory_gb": 16,
-      "a_storage_gb": 512,
-      "b_storage_gb": 1024
-    },
-    {
-      "identity_key": "715147ef66ee392690b5173f",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "compatible",
-      "reason": "memory/storage consistent",
-      "a_title": "华硕灵耀14 2025(Ultra9 285H/32GB/1TB)",
-      "b_title": "华硕灵耀14 2025(酷睿Ultra9 285H/32GB/1TB/2.8K/120Hz/OLED)",
-      "a_cpu": "Ultra 9 285H",
-      "b_cpu": "华硕灵耀14 2025(酷睿Ultra9 285H/32GB/1TB/2.8K/120Hz/OLED)",
-      "a_memory_gb": 32,
-      "b_memory_gb": 32,
-      "a_storage_gb": 1024,
-      "b_storage_gb": 1024
-    },
-    {
-      "identity_key": "f939224e2a471ac1e6e0c415",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "incompatible",
-      "reason": "storage 1024.0GB vs 2048.0GB",
-      "a_title": "华为MateBook Pro(32GB/1TB/柔光版)",
-      "b_title": "华为MateBook Pro(32GB/2TB/柔光版)",
-      "a_cpu": "华为MateBook Pro(32GB/1TB/柔光版)",
-      "b_cpu": "华为MateBook Pro(32GB/2TB/柔光版)",
-      "a_memory_gb": 32,
-      "b_memory_gb": 32,
-      "a_storage_gb": 1024,
-      "b_storage_gb": 2048
-    },
-    {
-      "identity_key": "58fd2f9dc39689543c7f5052",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "compatible",
-      "reason": "memory/storage consistent",
-      "a_title": "惠普暗影精灵11(i7 14650HX/RTX5060/16GB/1TB/黑色)",
-      "b_title": "惠普暗影精灵11(酷睿i7-14650HX/16GB/1TB/RTX5060/2.5K/240Hz)",
-      "a_cpu": "14650HX",
-      "b_cpu": "14650HX",
-      "a_memory_gb": 16,
-      "b_memory_gb": 16,
-      "a_storage_gb": 1024,
-      "b_storage_gb": 1024
-    },
-    {
-      "identity_key": "a171ec6b065a6e250daf6985",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "compatible",
-      "reason": "memory/storage consistent",
-      "a_title": "华硕天选6 Pro 锐龙版(锐龙9 9955HX/16GB/1TB/RTX5060)",
-      "b_title": "华硕天选6 Pro 锐龙版(R9-9955HX/16GB/1TB/RTX5060/2.5K/165Hz)",
-      "a_cpu": "Ryzen 9 9955HX",
-      "b_cpu": "9955HX",
-      "a_memory_gb": 16,
-      "b_memory_gb": 16,
       "a_storage_gb": 1024,
       "b_storage_gb": 1024
     },
@@ -1518,54 +1433,37 @@
       "b_storage_gb": 1024
     },
     {
-      "identity_key": "06892635da2b991ead57f16e",
+      "identity_key": "8f63366c5c735ad350eeab2f",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "compatible",
+      "reason": "memory/storage consistent",
+      "a_title": "惠普星Book Pro Air 14(Ultra 7 255H/32GB/1TB)",
+      "b_title": "惠普星Book Pro Air 14(酷睿Ultra7 255H/32GB/1TB/2.8K/120Hz)",
+      "a_cpu": "Intel 酷睿Ultra 7 255H",
+      "b_cpu": "惠普星Book Pro Air 14(酷睿Ultra7 255H/32GB/1TB/2.8K/120Hz)",
+      "a_memory_gb": 32,
+      "b_memory_gb": 32,
+      "a_storage_gb": 1024,
+      "b_storage_gb": 1024
+    },
+    {
+      "identity_key": "251779e2b6c03e4dbb31bea9",
       "sources": [
         "ZOL",
         "PConline"
       ],
       "kind": "incompatible",
-      "reason": "storage 1024.0GB vs 512.0GB",
-      "a_title": "神舟战神T12 Pro(i9 14900HX/32GB/1TB/RTX5090)",
-      "b_title": "神舟战神T12 Pro(酷睿i9-14900HX/32GB/1TB/RTX5090/2.5K/300Hz)",
-      "a_cpu": "14900HX",
-      "b_cpu": "14900HX",
-      "a_memory_gb": 32,
-      "b_memory_gb": 32,
-      "a_storage_gb": 1024,
-      "b_storage_gb": 512
-    },
-    {
-      "identity_key": "195e0855572e5b994a420538",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "compatible",
-      "reason": "memory/storage consistent",
-      "a_title": "华硕天选6 Pro 酷睿版(i7-14650HX/16GB/1TB/RTX5060)",
-      "b_title": "华硕天选6 Pro 酷睿版(酷睿i7-14650HX/16GB/1TB/RTX5060/2.5K/165Hz)",
-      "a_cpu": "i7 14650HX",
-      "b_cpu": "14650HX",
+      "reason": "storage 512.0GB vs 1024.0GB",
+      "a_title": "华硕天选7 Pro 酷睿版(酷睿Ultra 7 251HX 16GB/512GB/RTX5060/日蚀灰)",
+      "b_title": "华硕天选7 Pro 酷睿版(酷睿Ultra7 251HX/16GB/1TB/RTX5070/2.5K/300Hz)",
+      "a_cpu": "Intel 酷睿Ultra 7 251HX",
+      "b_cpu": "华硕天选7 Pro 酷睿版(酷睿Ultra7 251HX/16GB/1TB/RTX5070/2.5K/300Hz)",
       "a_memory_gb": 16,
       "b_memory_gb": 16,
-      "a_storage_gb": 1024,
-      "b_storage_gb": 1024
-    },
-    {
-      "identity_key": "0778e190585ebc916363a110",
-      "sources": [
-        "ZOL",
-        "PConline"
-      ],
-      "kind": "compatible",
-      "reason": "memory/storage consistent",
-      "a_title": "华硕天选6 Pro 锐龙版(锐龙9 8940HX/16GB/1TB/RTX5060)",
-      "b_title": "华硕天选6 Pro 锐龙版(R9-8940HX/16GB/1TB/RTX5060/2.5K/165Hz)",
-      "a_cpu": "Ryzen 9 8940HX",
-      "b_cpu": "8940HX",
-      "a_memory_gb": 16,
-      "b_memory_gb": 16,
-      "a_storage_gb": 1024,
+      "a_storage_gb": 512,
       "b_storage_gb": 1024
     },
     {
@@ -1586,19 +1484,121 @@
       "b_storage_gb": 1024
     },
     {
-      "identity_key": "3d3844fec0c223b8cf016413",
+      "identity_key": "9e77ef38e6c340df876910e0",
       "sources": [
         "ZOL",
         "PConline"
       ],
       "kind": "compatible",
       "reason": "memory/storage consistent",
-      "a_title": "荣耀MagicBook Art 14 2025(Ultra5 225H/32GB/1TB)",
-      "b_title": "荣耀MagicBook Art 14 2025(酷睿Ultra5 225H/32GB/1TB)",
-      "a_cpu": "Intel 酷睿Ultra 5 Processor 225H",
-      "b_cpu": "荣耀MagicBook Art 14 2025(酷睿Ultra5 225H/32GB/1TB)",
+      "a_title": "荣耀MagicBook Pro 16 2025(Ultra5 225H/32GB/1TB)",
+      "b_title": "荣耀MagicBook Pro 16 2025(酷睿Ultra5 225H/32GB/1TB)",
+      "a_cpu": "Intel 酷睿Ultra5 225H",
+      "b_cpu": "荣耀MagicBook Pro 16 2025(酷睿Ultra5 225H/32GB/1TB)",
       "a_memory_gb": 32,
       "b_memory_gb": 32,
+      "a_storage_gb": 1024,
+      "b_storage_gb": 1024
+    },
+    {
+      "identity_key": "229ff659dd1ef394afd8be0b",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "incompatible",
+      "reason": "memory 64.0GB vs 192.0GB; storage 2048.0GB vs 4096.0GB",
+      "a_title": "联想拯救者 创世(Ultra 9 290HX Plus/64GB/2TB/RTX5090)",
+      "b_title": "联想拯救者 创世(酷睿Ultra9 290HX Plus/192GB/4TB/RTX5090/4K/240Hz)",
+      "a_cpu": "Intel 酷睿Ultra 9 290HX Plus",
+      "b_cpu": "联想拯救者 创世(酷睿Ultra9 290HX Plus/192GB/4TB/RTX5090/4K/240Hz)",
+      "a_memory_gb": 64,
+      "b_memory_gb": 192,
+      "a_storage_gb": 2048,
+      "b_storage_gb": 4096
+    },
+    {
+      "identity_key": "195e0855572e5b994a420538",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "compatible",
+      "reason": "memory/storage consistent",
+      "a_title": "华硕天选6 Pro 酷睿版(i7-14650HX/16GB/1TB/RTX5060)",
+      "b_title": "华硕天选6 Pro 酷睿版(酷睿i7-14650HX/16GB/1TB/RTX5060/2.5K/165Hz)",
+      "a_cpu": "i7 14650HX",
+      "b_cpu": "14650HX",
+      "a_memory_gb": 16,
+      "b_memory_gb": 16,
+      "a_storage_gb": 1024,
+      "b_storage_gb": 1024
+    },
+    {
+      "identity_key": "58fd2f9dc39689543c7f5052",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "compatible",
+      "reason": "memory/storage consistent",
+      "a_title": "惠普暗影精灵11(i7 14650HX/RTX5060/16GB/1TB/黑色)",
+      "b_title": "惠普暗影精灵11(酷睿i7-14650HX/16GB/1TB/RTX5060/2.5K/240Hz)",
+      "a_cpu": "14650HX",
+      "b_cpu": "14650HX",
+      "a_memory_gb": 16,
+      "b_memory_gb": 16,
+      "a_storage_gb": 1024,
+      "b_storage_gb": 1024
+    },
+    {
+      "identity_key": "715147ef66ee392690b5173f",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "compatible",
+      "reason": "memory/storage consistent",
+      "a_title": "华硕灵耀14 2025(Ultra9 285H/32GB/1TB)",
+      "b_title": "华硕灵耀14 2025(酷睿Ultra9 285H/32GB/1TB/2.8K/120Hz/OLED)",
+      "a_cpu": "Ultra 9 285H",
+      "b_cpu": "华硕灵耀14 2025(酷睿Ultra9 285H/32GB/1TB/2.8K/120Hz/OLED)",
+      "a_memory_gb": 32,
+      "b_memory_gb": 32,
+      "a_storage_gb": 1024,
+      "b_storage_gb": 1024
+    },
+    {
+      "identity_key": "c232c6b938c7c89d255910c1",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "compatible",
+      "reason": "memory/storage consistent",
+      "a_title": "联想拯救者Y9000P 2026(i9-14900HX/16GB/1TB/RTX5060)",
+      "b_title": "联想拯救者Y9000P 2026(酷睿i9-14900HX/16GB/1TB/RTX5060/2.5K/240Hz)",
+      "a_cpu": "14900HX",
+      "b_cpu": "14900HX",
+      "a_memory_gb": 16,
+      "b_memory_gb": 16,
+      "a_storage_gb": 1024,
+      "b_storage_gb": 1024
+    },
+    {
+      "identity_key": "4f2c0c3fa820f8484d211e57",
+      "sources": [
+        "ZOL",
+        "PConline"
+      ],
+      "kind": "compatible",
+      "reason": "memory/storage consistent",
+      "a_title": "联想拯救者R7000P 2025(锐龙9 8940HX/16GB/1TB/RTX5060)",
+      "b_title": "联想拯救者R7000P 2025(R9-8940HX/16GB/1TB/RTX5060/2.5K/240Hz)",
+      "a_cpu": "Ryzen 9 8940HX",
+      "b_cpu": "8940HX",
+      "a_memory_gb": 16,
+      "b_memory_gb": 16,
       "a_storage_gb": 1024,
       "b_storage_gb": 1024
     }
