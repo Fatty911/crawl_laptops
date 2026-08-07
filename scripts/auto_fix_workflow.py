@@ -44,7 +44,7 @@ PROVIDER_DEFAULT_MODELS = {
     "ATOMGIT": ["zai-org/GLM-5.1", "deepseek-ai/DeepSeek-V4-Flash"],
     "CLOUDFLARE": ["@cf/zai-org/glm-5.2"],
     # 普通按量 API（免费全部不可用时兜底）
-    "DEEPSEEK": ["deepseek-v4-pro", "deepseek-v4-flash"],
+    "DEEPSEEK": ["deepseek-v4-flash"],
 }
 
 FREE_PREFIXES = {
