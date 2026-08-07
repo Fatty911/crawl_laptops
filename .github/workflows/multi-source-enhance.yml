@@ -142,9 +142,25 @@ jobs:
         run: |
           python3 - <<'PYEOF'
           import json
-          d = json.load(open('gap_analysis.json', encoding='utf-8'))
-          if isinstance(d, str):
-              d = json.loads(d)
+          raw = open('gap_analysis.json', encoding='utf-8').read()
+          d = {}
+          start = raw.find('{')
+          if start >= 0:
+              depth = 0
+              end = -1
+              for i in range(start, len(raw)):
+                  if raw[i] == '{':
+                      depth += 1
+                  elif raw[i] == '}':
+                      depth -= 1
+                      if depth == 0:
+                          end = i + 1
+                          break
+              if end > start:
+                  try:
+                      d = json.loads(raw[start:end])
+                  except Exception:
+                      d = {}
           text = f"自动差异归并分析（UTC）：\n根因: {d.get('root_cause', 'N/A')}\n修复建议: {d.get('fix_suggestion', 'N/A')}\n预期影响: {d.get('expected_impact', 'N/A')}"
           print(text)
           with open('gap_report.txt', 'w', encoding='utf-8') as f:
