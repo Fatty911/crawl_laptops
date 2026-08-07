@@ -363,7 +363,18 @@ def crawl(
     budget = Budget(time_limit)
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
-    node_mgr = NodeManager() if _mihomo_controller_ready() else None
+    controller_ready = _mihomo_controller_ready()
+    print(
+        f"[pconline] mihomo controller ready: {controller_ready}",
+        file=sys.stderr,
+    )
+    node_mgr = NodeManager() if controller_ready else None
+    if node_mgr is not None:
+        print(
+            f"[pconline] NodeManager nodes={len(node_mgr.nodes)} "
+            f"blacklist={sorted(node_mgr.blacklist)[:5]}",
+            file=sys.stderr,
+        )
     for page in range(1, pages + 1):
         if budget.expired():
             print("PConline time budget exhausted; keeping scanned prefix")
