@@ -139,6 +139,45 @@ jobs:
             --rejected data/work/rejected.json \
             --output dist/merge-evidence-report.json
 
+      - name: Scan for multi-source enhancement opportunities
+        id: mse
+        if: steps.artifacts.outputs.skip != 'true'
+        continue-on-error: true
+        run: |-
+          python scripts/multi_source_enhance.py \
+            --pages dist/laptops-latest.json \
+            --zol data/raw/zol/latest.json \
+            --jd data/raw/jd/latest.json \
+            --pconline data/raw/pconline/latest.json \
+            --output dist/multi-source-report.json
+          python3 - <<'PYEOF'
+          import json
+          d = json.load(open('dist/multi-source-report.json', encoding='utf-8'))
+          s = d['summary']
+          summary = f"overlap={s['raw_overlap_count']} compatible={s['compatible_overlap_count']} incompatible={s['incompatible_overlap_count']}"
+          print('MSE_SUMMARY=' + summary)
+          with open('dist/mse_summary.txt', 'w', encoding='utf-8') as f:
+              f.write(summary)
+          PYEOF
+          cat dist/multi-source-report.json | head -30
+
+      - name: File multi-source enhancement issue
+        if: steps.mse.outcome == 'success'
+        continue-on-error: true
+        run: |-
+          if [ ! -s dist/mse_summary.txt ]; then
+            echo "无扫描结果，跳过"
+            exit 0
+          fi
+          MSE_SUMMARY=$(cat dist/mse_summary.txt)
+          echo "MSE_SUMMARY=$MSE_SUMMARY"
+          COMPAT=$(echo "$MSE_SUMMARY" | grep -oE "compatible=[0-9]+" | cut -d= -f2)
+          if [ -n "$COMPAT" ] && [ "$COMPAT" -gt 0 ]; then
+            gh issue create               --repo "${{ github.repository }}"               --title "多源率提升：$COMPAT 个兼容跨源重叠未合并"               --label "crawl-failure-diagnosis"               --body "多源扫描发现 $COMPAT 个兼容配置的跨源重叠未进入发布，详见 merge 日志中的 dist/multi-source-report.json。" || true
+          else
+            echo "无兼容重叠可提升，跳过 issue"
+          fi
+
       - name: Create or update rolling data release
         if: steps.artifacts.outputs.skip != 'true'
         run: |
