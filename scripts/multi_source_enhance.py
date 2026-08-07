@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -66,15 +67,44 @@ def _num(value) -> float | None:
         return None
 
 
+_TITLE_SPEC_RE = re.compile(
+    r"(?P<mem>\d+)GB/(?P<sto>\d+)(?:TB|GB)"
+)
+
+
+def _title_spec(record: dict) -> tuple[float | None, float | None]:
+    """Fallback memory/storage from title (16GB/1TB or 16GB/512GB)."""
+    title = str(record.get("title") or record.get("model") or "")
+    m = _TITLE_SPEC_RE.search(title)
+    if not m:
+        return None, None
+    mem = float(m.group("mem"))
+    sto = float(m.group("sto"))
+    if "TB" in title[m.start():m.end()]:
+        sto *= 1024
+    return mem, sto
+
+
 def classify_overlap(a: dict, b: dict) -> tuple[str, str]:
     """Classify a cross-source identity overlap as compatible or not.
 
     Compatibility requires no hard conflict in memory / storage (the
-    dimensions that make two SKUs genuinely different products).
+    dimensions that make two SKUs genuinely different products).  Falls back
+    to title-extracted specs when structured fields are missing.
     Returns (kind, reason): kind in {"compatible", "incompatible", "unknown"}.
     """
     ma, mb = _num(a.get("memory_gb")), _num(b.get("memory_gb"))
     sa, sb = _num(a.get("storage_gb")), _num(b.get("storage_gb"))
+    if ma is None or mb is None or sa is None or sb is None:
+        ta, tb = _title_spec(a), _title_spec(b)
+        if ma is None:
+            ma = ta[0]
+        if mb is None:
+            mb = tb[0]
+        if sa is None:
+            sa = ta[1]
+        if sb is None:
+            sb = tb[1]
     hard_conflicts = []
     if ma is not None and mb is not None and ma != mb:
         hard_conflicts.append(f"memory {ma}GB vs {mb}GB")

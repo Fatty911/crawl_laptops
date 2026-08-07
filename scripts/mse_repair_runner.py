@@ -179,8 +179,13 @@ def main() -> int:
     agent = extract_json(raw)
     rules = agent.get("rules", [])
     if not rules:
-        print("[mse-repair] no rules in agent output; done")
-        return 0
+        # Agent 不可用时用确定性默认规则（Agent 前轮已确认的归一化方向）
+        print("[mse-repair] no rules in agent output; using deterministic defaults")
+        rules = [
+            {"type": "strip_prefix", "tokens": ["酷睿", "Intel", "英特尔"]},
+            {"type": "strip_suffix", "pattern": "/(\\d+(\\.\\d+)?K|\\d+Hz|OLED|\\d+K屏)"},
+            {"type": "normalize_case", "detail": "统一小写、去空格连字符、Pro/PRO→pro"},
+        ]
     if not apply_rules(rules):
         return 6
     tp = _run(["python", "-m", "pytest", "tests/", "-q"], timeout=400)
