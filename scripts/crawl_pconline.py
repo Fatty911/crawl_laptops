@@ -30,6 +30,111 @@ try:
 except ModuleNotFoundError:
     from crawl_runtime import Budget
 
+
+class NodeManager:
+    """mihomo 节点管理器：切换 PROXY select 组到具体节点，维护风控黑名单。
+
+    通过 mihomo external-controller API（默认 127.0.0.1:9090）把 PROXY
+    组从 BALANCE（round-robin 轮询全部节点）切到单个具体节点，从而：
+      - 每次请求都走同一个节点（可感知风控）
+      - 发现风控（榜单页行数 < 2）后把该节点拉黑，本次工作流不再使用
+      - 黑名单存到文件（/tmp/pconline_blacklist.json），同一工作流内
+        多个页面/进程共享，避免反复撞风控节点
+    """
+
+    def __init__(
+        self,
+        controller: str = "127.0.0.1:9090",
+        group: str = "PROXY",
+        blacklist_path: str = "/tmp/pconline_blacklist.json",
+    ) -> None:
+        self.controller = controller
+        self.group = group
+        self.blacklist_path = Path(blacklist_path)
+        self.blacklist: set[str] = self._load_blacklist()
+        self.nodes: list[str] = []
+        self.current: str | None = None
+        self._refresh_nodes()
+
+    def _api(self, method: str, path: str, body: dict | None = None):
+        import json as _json
+        import urllib.request
+
+        url = f"http://{self.controller}{path}"
+        data = _json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(url, data=data, method=method)
+        if data:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                raw = resp.read()
+                return _json.loads(raw) if raw else {}
+        except Exception:
+            return {}
+
+    def _load_blacklist(self) -> set[str]:
+        try:
+            return set(_json_load(self.blacklist_path))
+        except Exception:
+            return set()
+
+    def _save_blacklist(self) -> None:
+        try:
+            self.blacklist_path.write_text(
+                _json_dumps(sorted(self.blacklist)), encoding="utf-8"
+            )
+        except Exception:
+            pass
+
+    def _refresh_nodes(self) -> None:
+        data = self._api("GET", f"/proxies/{self.group}")
+        all_names = data.get("all") or []
+        # 过滤掉 BALANCE 等组名，只留具体节点
+        self.nodes = [
+            name for name in all_names
+            if name not in ("BALANCE", self.group)
+        ]
+        now = data.get("now")
+        self.current = now if now and now != "BALANCE" else None
+
+    def select_next(self) -> str | None:
+        """切换到下一个未被拉黑的节点，返回节点名；全部拉黑返回 None。"""
+        if not self.nodes:
+            self._refresh_nodes()
+        for name in self.nodes:
+            if name not in self.blacklist and name != self.current:
+                self._api("PUT", f"/proxies/{self.group}", {"name": name})
+                self.current = name
+                return name
+        return None
+
+    def mark_blocked(self, name: str | None) -> None:
+        """把节点加入黑名单（风控），后续请求不再使用。"""
+        if not name:
+            return
+        self.blacklist.add(name)
+        self._save_blacklist()
+        print(
+            f"[node-manager] 节点 {name[:30]} 被风控，加入黑名单 "
+            f"({len(self.blacklist)}/{len(self.nodes)})",
+            file=sys.stderr,
+        )
+
+    def healthy_count(self) -> int:
+        return len(self.nodes) - len(self.blacklist)
+
+
+def _json_load(path: Path):
+    import json as _json
+
+    return _json.loads(path.read_text(encoding="utf-8"))
+
+
+def _json_dumps(value):
+    import json as _json
+
+    return _json.dumps(value, ensure_ascii=False)
+
 BASE_URL = "https://product.pconline.com.cn"
 PAGE_SIZE = 25
 
@@ -182,6 +287,69 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
     return item
 
 
+def _mihomo_controller_ready() -> bool:
+    """探测 mihomo external-controller 是否可用。"""
+    try:
+        import socket
+
+        with socket.create_connection(("127.0.0.1", 9090), timeout=2):
+            return True
+    except Exception:
+        return False
+
+
+def _fetch_ranking_with_node_retry(
+    session,
+    url: str,
+    page: int,
+    node_mgr: "NodeManager | None",
+    delay: float,
+) -> list[dict[str, Any]]:
+    """带节点切换的榜单页抓取：风控（行数 < 2）时拉黑当前节点并换节点重试。
+
+    最多尝试 nodes 数量次；全部拉黑或无法切换时返回空列表。
+    """
+    if node_mgr is None:
+        html, final_url = get_html(
+            session, url, encoding="gb18030", delay=delay
+        )
+        return parse_ranking_page(html, page)
+
+    attempts = max(len(node_mgr.nodes), 1)
+    for attempt in range(attempts):
+        # 确保当前节点未被拉黑；被拉黑则切换
+        if node_mgr.current in node_mgr.blacklist:
+            node_mgr.select_next()
+        if node_mgr.current is None:
+            node_mgr.select_next()
+        if node_mgr.current is None:
+            print(
+                "[node-manager] 所有节点均被风控，无法继续爬取",
+                file=sys.stderr,
+            )
+            return []
+        try:
+            html, final_url = get_html(
+                session, url, encoding="gb18030", delay=delay
+            )
+        except Exception as exc:
+            print(
+                f"[node-manager] 节点 {node_mgr.current[:30]} 请求失败 "
+                f"{type(exc).__name__}，换节点重试",
+                file=sys.stderr,
+            )
+            node_mgr.mark_blocked(node_mgr.current)
+            node_mgr.select_next()
+            continue
+        page_items = parse_ranking_page(html, page)
+        if len(page_items) >= 2:
+            return page_items
+        # 风控特征：行数 < 2
+        node_mgr.mark_blocked(node_mgr.current)
+        node_mgr.select_next()
+    return []
+
+
 def crawl(
     pages: int,
     max_items: int,
@@ -193,12 +361,15 @@ def crawl(
     budget = Budget(time_limit)
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
+    node_mgr = NodeManager() if _mihomo_controller_ready() else None
     for page in range(1, pages + 1):
         if budget.expired():
             print("PConline time budget exhausted; keeping scanned prefix")
             break
-        html, final_url = get_html(session, ranking_url((page - 1) * PAGE_SIZE), encoding="gb18030", delay=delay)
-        page_items = parse_ranking_page(html, page)
+        url = ranking_url((page - 1) * PAGE_SIZE)
+        page_items = _fetch_ranking_with_node_retry(
+            session, url, page, node_mgr, delay
+        )
         if not page_items:
             raise RuntimeError(f"PConline ranking page {page} returned no product cards")
         session.headers["Referer"] = final_url
