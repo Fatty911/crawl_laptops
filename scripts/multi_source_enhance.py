@@ -196,8 +196,11 @@ def main() -> int:
     )
     s = report["summary"]
     print(
-        f"single={s['single_rows']} match_found={s['match_found_count']} "
+        f"single={report['single_rows']} match_found={s['match_found_count']} "
         f"no_match={s['no_match_count']} "
+        f"raw_overlap={s['raw_overlap_count']} "
+        f"compatible={s['compatible_overlap_count']} "
+        f"incompatible={s['incompatible_overlap_count']} "
         f"potential_gain={s['potential_multi_rate_gain']}%"
     )
     return 0
