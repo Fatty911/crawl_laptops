@@ -125,7 +125,7 @@ def test_fetch_retry_switches_node_on_blocked_page(tmp_path, monkeypatch):
     monkeypatch.setattr(pcl, "get_html", fake_get_html)
     monkeypatch.setattr(pcl, "parse_ranking_page", pcl.parse_ranking_page)
 
-    items = pcl._fetch_ranking_with_node_retry(None, "http://x/s10.shtml", 1, mgr, 0.0)
+    items, _ = pcl._fetch_ranking_with_node_retry(None, "http://x/s10.shtml", 1, mgr, 0.0)
     assert len(items) == 25  # 最终拿到 node-b 的 25 行
     assert "node-a" in mgr.blacklist  # node-a 被拉黑
     assert fetch_calls == ["node-a", "node-b"]  # 先 a 后 b
@@ -153,6 +153,6 @@ def test_fetch_retry_all_blocked_returns_empty(tmp_path, monkeypatch):
     mgr = Mgr()
     monkeypatch.setattr(pcl, "get_html", lambda *a, **k: (soup1, "x"))
 
-    items = pcl._fetch_ranking_with_node_retry(None, "http://x/s10.shtml", 1, mgr, 0.0)
+    items, _ = pcl._fetch_ranking_with_node_retry(None, "http://x/s10.shtml", 1, mgr, 0.0)
     assert items == []  # 两个节点都只有 1 行 → 全拉黑 → 空
     assert mgr.healthy_count() == 0

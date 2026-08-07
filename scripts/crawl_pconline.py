@@ -313,9 +313,10 @@ def _fetch_ranking_with_node_retry(
         html, final_url = get_html(
             session, url, encoding="gb18030", delay=delay
         )
-        return parse_ranking_page(html, page)
+        return parse_ranking_page(html, page), final_url
 
     attempts = max(len(node_mgr.nodes), 1)
+    last_url = url
     for attempt in range(attempts):
         # 确保当前节点未被拉黑；被拉黑则切换
         if node_mgr.current in node_mgr.blacklist:
@@ -332,6 +333,7 @@ def _fetch_ranking_with_node_retry(
             html, final_url = get_html(
                 session, url, encoding="gb18030", delay=delay
             )
+            last_url = final_url
         except Exception as exc:
             print(
                 f"[node-manager] 节点 {node_mgr.current[:30]} 请求失败 "
@@ -343,11 +345,11 @@ def _fetch_ranking_with_node_retry(
             continue
         page_items = parse_ranking_page(html, page)
         if len(page_items) >= 2:
-            return page_items
+            return page_items, last_url
         # 风控特征：行数 < 2
         node_mgr.mark_blocked(node_mgr.current)
         node_mgr.select_next()
-    return []
+    return [], last_url
 
 
 def crawl(
@@ -367,7 +369,7 @@ def crawl(
             print("PConline time budget exhausted; keeping scanned prefix")
             break
         url = ranking_url((page - 1) * PAGE_SIZE)
-        page_items = _fetch_ranking_with_node_retry(
+        page_items, final_url = _fetch_ranking_with_node_retry(
             session, url, page, node_mgr, delay
         )
         if not page_items:
