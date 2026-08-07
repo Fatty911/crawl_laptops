@@ -221,6 +221,7 @@ def write_runtime_files(
     subscriptions: list[str],
     excluded: list[str],
     proxies: list[dict[str, Any]],
+    health_check_url: str = "https://www.baidu.com/",
 ) -> None:
     proxy_config.parent.mkdir(parents=True, exist_ok=True)
     proxy_config.write_text(
@@ -236,12 +237,6 @@ def write_runtime_files(
         encoding="utf-8",
     )
     generator = ClashConfigGenerator(str(clash_config))
-    health_check_url = os.environ.get(
-        "HEALTH_CHECK_URL",
-        f"https://{urlparse(args.test_url[0]).netloc}/"
-        if args.test_url
-        else "https://www.baidu.com/",
-    )
     generator.save_config(
         generator.generate_config_from_proxies(
             proxies, health_check_url=health_check_url
