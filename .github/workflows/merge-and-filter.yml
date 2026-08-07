@@ -174,7 +174,14 @@ jobs:
           echo "MSE_SUMMARY=$MSE_SUMMARY"
           COMPAT=$(echo "$MSE_SUMMARY" | grep -oE "\bcompatible=[0-9]+" | cut -d= -f2 | head -1)
           if [ -n "$COMPAT" ] && [ "$COMPAT" -gt 0 ]; then
-            gh issue create               --repo "${{ github.repository }}"               --title "多源率提升：$COMPAT 个兼容跨源重叠未合并"               --label "crawl-failure-diagnosis"               --body "多源扫描发现 $COMPAT 个兼容配置的跨源重叠未进入发布，详见 merge 日志中的 dist/multi-source-report.json。"
+            # 防重复：已存在 OPEN 的多源率提升 issue 时评论更新，否则新建
+            EXISTING=$(gh issue list --repo "${{ github.repository }}" --state open --search "多源率提升 in:title" --json number --jq ".[0].number" 2>/dev/null)
+            if [ -n "$EXISTING" ]; then
+              gh issue comment "$EXISTING" --repo "${{ github.repository }}" --body "扫描更新：$COMPAT 个兼容跨源重叠未合并（$(date -u +%H:%M UTC)）" || true
+              echo "updated issue #$EXISTING"
+            else
+              gh issue create               --repo "${{ github.repository }}"               --title "多源率提升：$COMPAT 个兼容跨源重叠未合并"               --label "crawl-failure-diagnosis"               --body "多源扫描发现 $COMPAT 个兼容配置的跨源重叠未进入发布，详见 merge 日志中的 dist/multi-source-report.json。"
+            fi
           else
             echo "无兼容重叠可提升，跳过 issue"
           fi
