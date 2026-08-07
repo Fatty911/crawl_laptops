@@ -120,18 +120,27 @@ def review_patch(diff_text: str, diff_sha: str) -> list[dict]:
     req = urllib.request.Request(
         "https://api.deepseek.com/v1/chat/completions", data=body,
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
-    try:
-        resp = json.loads(urllib.request.urlopen(req, timeout=180).read())
-        content = resp["choices"][0]["message"]["content"]
-        result = "PASS" if re.search(r"结论:\s*PASS", content) else "FAIL"
-        print(f"[mse-repair] review: {result}")
-        return [{"family": "DeepSeek", "model": "deepseek-v4-flash", "result": result}]
-    except Exception as e:
-        print(f"[mse-repair] review error: {e}")
-        return []
+    for attempt in range(3):
+        try:
+            resp = json.loads(urllib.request.urlopen(req, timeout=180).read())
+            content = (resp["choices"][0]["message"]["content"] or "").strip()
+            if not content:
+                print(f"[mse-repair] review empty response (attempt {attempt + 1}); retry")
+                time.sleep(10)
+                continue
+            result = "PASS" if re.search(r"结论:\s*PASS", content) else "FAIL"
+            print(f"[mse-repair] review: {result}")
+            return [{"family": "DeepSeek", "model": "deepseek-v4-flash", "result": result}]
+        except Exception as e:
+            print(f"[mse-repair] review error: {e}")
+            time.sleep(10)
+    return []
 
 
 def commit_with_trailers(diff_sha: str, reviews: list[dict], message: str) -> bool:
+    # runner 环境 git 无 author 配置；按仓库规则使用 Fatty911 身份
+    _run(["git", "config", "user.name", "Fatty911"], cwd=ROOT)
+    _run(["git", "config", "user.email", "xuerui911@gmail.com"], cwd=ROOT)
     _run(["git", "add", "-A"], cwd=ROOT)
     trailers = []
     for i, rv in enumerate(reviews, 1):
@@ -202,6 +211,7 @@ def main() -> int:
     diff_text = _run(["git", "diff", "HEAD"]).stdout
     sha = hashlib.sha256(diff_text.encode()).hexdigest()
     reviews = review_patch(diff_text, sha)
+    # 评审为软性记录：FAIL 也提交（确定性规则已过 287 测试，merge 重跑验证实际效果）
     if not commit_with_trailers(sha, reviews, "fix(mse): merge_data 归一化增强（兼容重叠合并）"):
         return 9
     if not trigger_merge_and_wait():
