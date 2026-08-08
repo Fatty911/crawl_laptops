@@ -35,7 +35,7 @@ jobs:
           repo = os.environ.get("GITHUB_REPOSITORY", "")
           now = datetime.datetime.now(datetime.timezone.utc)
           out = subprocess.run(
-              ["gh", "run", "list", "--repo", repo, "--limit", "20",
+              ["gh", "run", "list", "--repo", repo, "--limit", "50",
                "--json", "databaseId,status,updatedAt,workflowName,conclusion"],
               capture_output=True, text=True, timeout=60,
           )
