@@ -221,7 +221,8 @@ jobs:
         if: >-
           steps.classify.outputs.should_diagnose == 'true' &&
           (steps.classify.outputs.classification == 'site_breakage' ||
-           steps.classify.outputs.classification == 'unknown')
+           steps.classify.outputs.classification == 'unknown' ||
+           steps.classify.outputs.classification == 'low_output')
         run: |-
           EXCERPT=""
           if [ -s workflow_error.log ]; then
