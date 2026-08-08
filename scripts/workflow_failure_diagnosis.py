@@ -61,13 +61,9 @@ def classify_run(workflow_name: str, conclusion: str, text: str) -> tuple[str, s
     if conclusion == "success":
         if workflow_name not in CRAWLER_WORKFLOWS:
             return "not_crawler", "非爬虫 workflow，不做爬虫预期检查", False
-        if any(marker in text for marker in EXPECTED_SKIP_MARKERS):
-            return "expected_skip", "workflow 在窗口外或预算不足时按预期跳过", False
-        if any(marker in text for marker in PROGRESS_MARKERS):
-            return "expected_progress_exit", "增量爬取按预期保存进度后结束", False
-        if any(marker in text for marker in PROXY_DIRECT_MARKERS):
-            return "proxy_degraded", "代理降级或不可用；可能是订阅节点问题，不改代码", False
-        # 低产出检测：PConline 成功但记录数远低于正常（增量游标可能卡住）
+        # 低产出检测优先：PConline 成功但记录数远低于正常（增量游标可能卡住）。
+        # 必须在 expected_skip 之前——workflow 日志含窗口跳过文案但实际执行了爬取，
+        # 且实际产出很少时，先报 low_output（EXPECTED_SKIP_MARKERS 会误匹配）
         if workflow_name == "Crawl PConline":
             m = PCL_RECORDS_RE.search(text)
             if m and int(m.group(1)) < PCL_LOW_OUTPUT_THRESHOLD:
@@ -77,6 +73,12 @@ def classify_run(workflow_name: str, conclusion: str, text: str) -> tuple[str, s
                     "增量游标可能卡在前几页，需检查第 6 页起是否被误判空页或全部节点风控",
                     True,
                 )
+        if any(marker in text for marker in EXPECTED_SKIP_MARKERS):
+            return "expected_skip", "workflow 在窗口外或预算不足时按预期跳过", False
+        if any(marker in text for marker in PROGRESS_MARKERS):
+            return "expected_progress_exit", "增量爬取按预期保存进度后结束", False
+        if any(marker in text for marker in PROXY_DIRECT_MARKERS):
+            return "proxy_degraded", "代理降级或不可用；可能是订阅节点问题，不改代码", False
         return "expected_success", "workflow 成功且未发现明显跑偏迹象", False
     return f"conclusion_{conclusion or 'unknown'}", "workflow 未失败也未成功", False
 
