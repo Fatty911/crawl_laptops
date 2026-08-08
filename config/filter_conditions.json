@@ -17,7 +17,11 @@
       "label": "CPU 电压类型",
       "operator": "not_equals",
       "value": "low_power",
-      "allowed_values": ["standard_performance", "high_performance", "desktop_performance"],
+      "allowed_values": [
+        "standard_performance",
+        "high_performance",
+        "desktop_performance"
+      ],
       "locked": true
     }
   },
@@ -30,37 +34,61 @@
     {
       "id": "processor",
       "label": "处理器",
-      "fields": ["cpu_brand", "cpu_family", "cpu_voltage_type"]
+      "fields": [
+        "cpu_brand",
+        "cpu_family",
+        "cpu_voltage_type"
+      ]
     },
     {
       "id": "graphics",
       "label": "显卡",
-      "fields": ["gpu_type", "gpu"]
+      "fields": [
+        "gpu_type",
+        "gpu"
+      ]
     },
     {
       "id": "display",
       "label": "屏幕",
-      "fields": ["screen_size", "resolution", "refresh_rate"]
+      "fields": [
+        "screen_size",
+        "resolution",
+        "refresh_rate"
+      ]
     },
     {
       "id": "memory_storage",
       "label": "内存存储",
-      "fields": ["memory_gb", "storage_gb"]
+      "fields": [
+        "memory_gb",
+        "storage_gb"
+      ]
     },
     {
       "id": "keyboard",
       "label": "键盘",
-      "fields": ["numeric_keypad", "keyboard_backlight"]
+      "fields": [
+        "numeric_keypad",
+        "keyboard_backlight"
+      ]
     },
     {
       "id": "battery_ports",
       "label": "电池接口",
-      "fields": ["battery_wh", "ports"]
+      "fields": [
+        "battery_wh",
+        "ports"
+      ]
     },
     {
       "id": "price_brand",
       "label": "价格品牌",
-      "fields": ["price", "brand"]
+      "fields": [
+        "price",
+        "brand",
+        "multi_source"
+      ]
     }
   ]
 }

@@ -58,6 +58,9 @@
     ports: () => "",
     price: () => rangeField("priceMin", "priceMax", "价格区间", "¥"),
     brand: () => selectField("brand", "品牌", [["", "全部"]]),
+    numeric_keypad: () => checkField("numpadOnly", "仅数字小键盘", false),
+    keyboard_backlight: () => checkField("backlightOnly", "仅键盘背光", false),
+    multi_source: () => checkField("multiOnly", "仅多源交叉验证", false),
   };
 
   function selectField(key, label, options) {
@@ -239,6 +242,9 @@
       if (!passesNumber(item.battery_wh, f.batteryMin)) return false;
       if (f.priceMin !== null && !(Number(item.price) >= f.priceMin)) return false;
       if (f.priceMax !== null && !(Number(item.price) <= f.priceMax)) return false;
+      if (f.numpadOnly && !item.numeric_keypad) return false;
+      if (f.backlightOnly && !item.keyboard_backlight) return false;
+      if (f.multiOnly && !(Number(item.source_count) >= 2)) return false;
       return true;
     });
     sortItems();
@@ -254,6 +260,12 @@
       source_count: (a, b) => (b.source_count || 0) - (a.source_count || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
       price_asc: (a, b) => (a.price ?? large) - (b.price ?? large),
       price_desc: (a, b) => (b.price ?? -1) - (a.price ?? -1),
+      screen_desc: (a, b) => (parseFloat(b.screen_size) || 0) - (parseFloat(a.screen_size) || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
+      refresh_desc: (a, b) => (parseFloat(b.refresh_rate) || 0) - (parseFloat(a.refresh_rate) || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
+      memory_desc: (a, b) => (Number(b.memory_gb) || 0) - (Number(a.memory_gb) || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
+      storage_desc: (a, b) => (Number(b.storage_gb) || 0) - (Number(a.storage_gb) || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
+      numpad_first: (a, b) => (Number(b.numeric_keypad) || 0) - (Number(a.numeric_keypad) || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
+      backlight_first: (a, b) => (Number(b.keyboard_backlight) || 0) - (Number(a.keyboard_backlight) || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
     };
     state.filtered.sort(comparators[mode] || comparators.source_rank);
   }
