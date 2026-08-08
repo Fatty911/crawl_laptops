@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -38,6 +39,10 @@ PROXY_DIRECT_MARKERS = (
     "无代理，直接运行",
     "proxy unavailable",
 )
+# PConline 增量爬虫每轮正常应产出 > 300 条（热度榜多页）；低于阈值视为
+# "产出不足"——扫描游标卡住（如第 6 页被误判空页/风控全拉黑），需自修复介入
+PCL_LOW_OUTPUT_THRESHOLD = 200
+PCL_RECORDS_RE = re.compile(r"wrote (\d+) PConline popularity-ranked records")
 
 
 def read_logs(paths: list[str]) -> str:
@@ -62,6 +67,16 @@ def classify_run(workflow_name: str, conclusion: str, text: str) -> tuple[str, s
             return "expected_progress_exit", "增量爬取按预期保存进度后结束", False
         if any(marker in text for marker in PROXY_DIRECT_MARKERS):
             return "proxy_degraded", "代理降级或不可用；可能是订阅节点问题，不改代码", False
+        # 低产出检测：PConline 成功但记录数远低于正常（增量游标可能卡住）
+        if workflow_name == "Crawl PConline":
+            m = PCL_RECORDS_RE.search(text)
+            if m and int(m.group(1)) < PCL_LOW_OUTPUT_THRESHOLD:
+                return (
+                    "low_output",
+                    f"PConline 本轮仅产出 {m.group(1)} 条（阈值 {PCL_LOW_OUTPUT_THRESHOLD}）；"
+                    "增量游标可能卡在前几页，需检查第 6 页起是否被误判空页或全部节点风控",
+                    True,
+                )
         return "expected_success", "workflow 成功且未发现明显跑偏迹象", False
     return f"conclusion_{conclusion or 'unknown'}", "workflow 未失败也未成功", False
 
