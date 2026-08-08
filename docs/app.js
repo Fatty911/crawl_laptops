@@ -296,7 +296,7 @@
     const key = btn.dataset.spuKey;
     if (state.expandedSeries.has(key)) state.expandedSeries.delete(key);
     else state.expandedSeries.add(key);
-    render();
+    renderResults();
   });
 
   function setView(view) {
