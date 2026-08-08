@@ -6,6 +6,7 @@
     filtered: [],
     config: null,
     view: localStorage.getItem("nb-view") || (window.matchMedia("(max-width: 780px)").matches ? "cards" : "table"),
+    expandedSeries: new Set(),
     filters: {
       search: "",
       hideDedicated: true,
@@ -118,6 +119,44 @@
     </tr>`;
   }
 
+  // SPU 级系列识别：型号剥离括号配置后缀（联想拯救者Y7000 2025(i7.../16GB...) -> 联想拯救者Y7000 2025）
+  function spuIdentity(item) {
+    const model = String(item.model || item.title || "");
+    let base = model.split(/[（(]/)[0].trim();
+    // JD 长标题无括号：截断到"品牌+型号"（取前 18 字符内最后一个空格/分隔）
+    if (base === model && base.length > 18) {
+      const cut = base.slice(0, 18);
+      const sp = Math.max(cut.lastIndexOf(" "), cut.lastIndexOf("·"), cut.lastIndexOf("-"), cut.lastIndexOf("【"));
+      if (sp > 4) base = cut.slice(0, sp).trim();
+      else base = cut.trim();
+    }
+    const brand = String(item.brand || "").trim();
+    return {
+      key: "spu|" + brand + "|" + base.replace(/\s+/g, ""),
+      name: base || model,
+      brand: brand,
+    };
+  }
+
+  function groupRowsBySpu(rows) {
+    const groups = [];
+    const map = new Map();
+    rows.forEach((row) => {
+      const id = spuIdentity(row);
+      let g = map.get(id.key);
+      if (!g) {
+        g = { key: id.key, name: id.name, brand: id.brand, rows: [] };
+        map.set(id.key, g);
+        groups.push(g);
+      }
+      g.rows.push(row);
+    });
+    groups.forEach((g) => {
+      g.rows.sort((a, b) => Number(a.source_rank || 9999) - Number(b.source_rank || 9999));
+    });
+    return groups;
+  }
+
   function cardTemplate(item) {
     const url = item.source_url || Object.values(item.source_urls || {})[0] || "#";
     const multi = Number(item.source_count) >= 2;
@@ -222,7 +261,21 @@
   function renderResults() {
     $("#visible-count").textContent = state.filtered.length;
     $("#laptop-rows").innerHTML = state.filtered.map(rowTemplate).join("");
-    $("#card-view").innerHTML = state.filtered.map(cardTemplate).join("");
+    // 卡片视图 = SPU 级：按系列分组折叠，组内展开各 SKU 卡片
+    const groups = groupRowsBySpu(state.filtered);
+    $("#card-view").innerHTML = groups.map((g, gi) => {
+      const expanded = state.expandedSeries.has(g.key);
+      const detailId = "spu-models-" + gi;
+      const cards = g.rows.map(cardTemplate).join("");
+      return `<section class="spu-group" data-spu="${escapeHtml(g.key)}">
+        <button type="button" class="spu-toggle" data-spu-key="${escapeHtml(g.key)}" aria-expanded="${expanded}" aria-controls="${detailId}">
+          <span class="spu-name">${escapeHtml(g.name)}</span>
+          <small class="spu-count">${g.rows.length} 个配置</small>
+          <span class="spu-arrow">${expanded ? "▾" : "▸"}</span>
+        </button>
+        <div id="${detailId}" class="spu-models" ${expanded ? "" : "hidden"}>${cards}</div>
+      </section>`;
+    }).join("");
     $("#empty-state").hidden = state.filtered.length !== 0;
     $("#table-view").hidden = state.filtered.length === 0 || state.view !== "table";
     $("#card-view").hidden = state.filtered.length === 0 || state.view !== "cards";
@@ -236,6 +289,15 @@
     }).length;
     $("#active-filter-count").textContent = count;
   }
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".spu-toggle");
+    if (!btn) return;
+    const key = btn.dataset.spuKey;
+    if (state.expandedSeries.has(key)) state.expandedSeries.delete(key);
+    else state.expandedSeries.add(key);
+    render();
+  });
 
   function setView(view) {
     state.view = view;
