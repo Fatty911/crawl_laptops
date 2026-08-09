@@ -194,14 +194,19 @@ def test_pconline_incremental_scan_and_resume(tmp_path, monkeypatch):
     pages = {
         0: _pconline_ranking(["机械革命极光X i7-13700HX 游戏本", "联想拯救者Y7000 2025 游戏本"]),
         25: _pconline_ranking([]),
+        50: _pconline_ranking([]),
+        75: _pconline_ranking([]),
+        100: _pconline_ranking([]),
     }
     fetched = []
 
     def fake_fetch(session, url, page, node_mgr, delay):
+        import re as _re
         if url.endswith("/notebook/s10.shtml"):
             offset = 0
         else:
-            offset = int(url.rstrip("s10.shtml").rsplit("/", 1)[-1])
+            m = _re.search(r"/(\d+)s10\.shtml$", url)
+            offset = int(m.group(1)) if m else 0
         fetched.append(offset)
         return pconline.parse_ranking_page(pages[offset], page), url
 
@@ -216,18 +221,30 @@ def test_pconline_incremental_scan_and_resume(tmp_path, monkeypatch):
         str(output), str(progress_dir), 0.0, min_records=1, time_limit=0, max_pages=0
     )
 
-    assert exit_code == 0
+    # 风控空壳页（25/50/75 空）不判扫描完成：单次空页 -> exit 10 续跑，
+    # 连续 3 个空页（streak=3，第 75 页）才 scan_complete -> exit 0。
+    assert exit_code == 10  # 25 空页 streak=1 -> 续跑（current_page=3）
+
+    exit_code = pconline.crawl_incremental(
+        str(output), str(progress_dir), 0.0, min_records=1, time_limit=0, max_pages=0
+    )
+    assert exit_code == 10  # 50 空页 streak=2 -> 续跑
+
+    exit_code = pconline.crawl_incremental(
+        str(output), str(progress_dir), 0.0, min_records=1, time_limit=0, max_pages=0
+    )
+    assert exit_code == 0  # 75 空页 streak=3 -> scan_complete
     assert output.exists()
     progress = Progress.load(progress_dir)
     assert progress.scan_complete is True
     assert progress.total_items == 2
 
-    # A resumed run after completion must not fetch anything again.
+    # 完成后 resume 不再抓取
     exit_code = pconline.crawl_incremental(
         str(output), str(progress_dir), 0.0, min_records=1, time_limit=0, max_pages=0
     )
     assert exit_code == 0
-    assert fetched == [0, 25]
+    assert fetched == [0, 25, 50, 75]
 
 
 def test_pconline_incremental_fake_pagination_guard(tmp_path, monkeypatch):

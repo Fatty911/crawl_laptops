@@ -164,6 +164,8 @@ def _json_dumps(value):
 
 BASE_URL = "https://product.pconline.com.cn"
 PAGE_SIZE = 25
+# 连续空页达到该值才判榜单扫描完成（风控空壳页 144 字节不应误判）
+EMPTY_STREAK_LIMIT = 3
 
 
 def ranking_url(offset: int) -> str:
@@ -467,7 +469,7 @@ def crawl_incremental(
     controller_ready = _mihomo_controller_ready()
     node_mgr = NodeManager() if controller_ready else None
 
-    empty_streak = 0
+    empty_streak = int(getattr(progress, "empty_streak", 0) or 0)
     if not progress.scan_complete:
         page = max(progress.current_page, 1)
         while not budget.expired():
@@ -489,8 +491,23 @@ def crawl_incremental(
                 break
             session.headers["Referer"] = final_url
             if not page_items:
-                progress.scan_complete = True
+                # 空页可能是风控空壳（144 字节防爬页）而非榜单结束：
+                # 连续 EMPTY_STREAK_LIMIT 个空页才判扫描完成（防误判）；
+                # 单次空页则暂停本轮（exit 10 下轮续扫，保留游标 + streak）。
+                # current_page 先 +1：下轮从下一页续扫（否则同一空页反复重试，
+                # streak 无法跨页累计）
+                empty_streak = int(getattr(progress, "empty_streak", 0) or 0) + 1
+                progress.empty_streak = empty_streak
+                print(
+                    f"PConline ranking page {page} empty (streak={empty_streak}); "
+                    f"need {EMPTY_STREAK_LIMIT} consecutive empties to mark scan complete",
+                    file=sys.stderr,
+                )
+                progress.current_page = page + 1
                 progress.save(state_dir)
+                if empty_streak >= EMPTY_STREAK_LIMIT:
+                    progress.scan_complete = True
+                    progress.save(state_dir)
                 break
             before = len(items)
             items, added = merge_new_items(items, page_items, item_key)

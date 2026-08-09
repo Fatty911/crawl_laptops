@@ -36,6 +36,7 @@ class Progress:
     scan_complete: bool = False
     processed_ids: list[str] = field(default_factory=list)
     total_items: int = 0
+    empty_streak: int = 0  # 连续空页计数（风控空壳页防误判，跨 run 持久）
 
     @classmethod
     def load(cls, progress_dir: Path) -> "Progress":
@@ -54,6 +55,7 @@ class Progress:
             scan_complete=bool(raw.get("scan_complete", False)),
             processed_ids=[str(value) for value in processed] if isinstance(processed, list) else [],
             total_items=int(raw.get("total_items", 0) or 0),
+            empty_streak=int(raw.get("empty_streak", 0) or 0),
         )
 
     def save(self, progress_dir: Path) -> None:
@@ -63,6 +65,7 @@ class Progress:
             "scan_complete": self.scan_complete,
             "processed_ids": self.processed_ids,
             "total_items": self.total_items,
+            "empty_streak": self.empty_streak,
         }
         path = progress_dir / PROGRESS_NAME
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
