@@ -239,7 +239,13 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
                 record["gpu"] = m_gpu.group(1).replace(" ", "")
                 record["gpu_type"] = "dedicated"
                 record["dedicated_gpu"] = True
-            # 游戏本类目弱证据：蓝天模具游戏本标配数字键盘 + 背光键盘
+            # 游戏本类目弱证据：蓝天模具游戏本标配数字键盘 + 背光键盘 + H 系 CPU
+            if record.get("cpu_voltage_type") in (None, "unknown"):
+                # 蓝天模具游戏本全系 H/HX 标压 CPU（产品形态决定，非型号推断）
+                record["cpu_voltage_type"] = "standard_performance"
+                record.setdefault("evidence", {})["cpu_voltage_type"] = (
+                    "准系统游戏本类目弱证据（蓝天模具标配 H 系标压 CPU）"
+                )
             if record.get("numeric_keypad") is None:
                 record["numeric_keypad"] = True
                 record.setdefault("evidence", {})["numeric_keypad"] = (
