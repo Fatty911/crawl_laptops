@@ -66,21 +66,13 @@
               <h2><strong id="visible-count">0</strong> 款符合当前条件</h2>
             </div>
             <div class="toolbar-actions">
-              <label>
-                <span class="sr-only">排序</span>
-                <select id="sort">
-                  <option value="source_rank">综合榜单</option>
-                  <option value="price_asc">价格从低到高</option>
-                  <option value="price_desc">价格从高到低</option>
-                  <option value="source_count">多源优先</option>
-                  <option value="screen_desc">屏幕尺寸从大到小</option>
-                  <option value="refresh_desc">刷新率从高到低</option>
-                  <option value="memory_desc">内存从大到小</option>
-                  <option value="storage_desc">存储从大到小</option>
-                  <option value="numpad_first">数字键盘优先</option>
-                  <option value="backlight_first">键盘背光优先</option>
-                </select>
-              </label>
+              <div class="sort-builder">
+                <div class="sort-builder-head">
+                  <span>排序（Excel 式多级）</span>
+                  <button type="button" id="add-sort" title="添加排序关键字">+ 添加关键字</button>
+                </div>
+                <div id="sort-rules"></div>
+              </div>
               <div class="view-switch" aria-label="视图切换">
                 <button data-view="table" class="is-active" type="button" title="表格视图">表格</button>
                 <button data-view="cards" type="button" title="卡片视图">卡片</button>

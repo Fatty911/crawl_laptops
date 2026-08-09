@@ -388,6 +388,63 @@ tbody tr.multi-source { box-shadow: inset 3px 0 var(--acid); }
   display: none !important;
 }
 
+.sort-builder {
+  margin: 6px 0;
+}
+.sort-builder-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+.sort-builder-head button {
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.sort-rule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.sort-idx {
+  font-size: 12px;
+  color: #888;
+  min-width: 16px;
+}
+.sort-rule select {
+  flex: 1;
+  min-width: 0;
+}
+.sort-dir {
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sort-dir.desc {
+  border-color: #4a90d9;
+  color: #4a90d9;
+}
+.sort-remove {
+  border: none;
+  background: transparent;
+  color: #c33;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+}
+
 .spu-group {
   border-bottom: 1px solid var(--line, #e5e5e5);
   margin-bottom: 4px;

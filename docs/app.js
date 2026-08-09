@@ -7,6 +7,7 @@
     config: null,
     view: localStorage.getItem("nb-view") || (window.matchMedia("(max-width: 780px)").matches ? "cards" : "table"),
     expandedSeries: new Set(),
+    sortRules: [{ field: "source_rank", dir: "desc" }],
     filters: {
       search: "",
       hideDedicated: true,
@@ -252,22 +253,87 @@
     updateActiveFilterCount();
   }
 
-  function sortItems() {
-    const mode = $("#sort").value;
+  // Excel 式多级排序：规则列表（字段 + 升/降），依次比较（第一关键字优先）
+  const SORT_FIELDS = [
+    ["source_rank", "综合榜单"],
+    ["price", "价格"],
+    ["screen_size", "屏幕尺寸"],
+    ["refresh_rate", "刷新率"],
+    ["memory_gb", "内存"],
+    ["storage_gb", "存储"],
+    ["numeric_keypad", "数字键盘"],
+    ["keyboard_backlight", "键盘背光"],
+    ["source_count", "多源数"],
+    ["brand", "品牌"],
+    ["cpu", "处理器"],
+  ];
+
+  function sortFieldValue(item, field) {
     const large = Number.MAX_SAFE_INTEGER;
-    const comparators = {
-      source_rank: (a, b) => (b.source_count || 0) - (a.source_count || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
-      source_count: (a, b) => (b.source_count || 0) - (a.source_count || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
-      price_asc: (a, b) => (a.price ?? large) - (b.price ?? large),
-      price_desc: (a, b) => (b.price ?? -1) - (a.price ?? -1),
-      screen_desc: (a, b) => (parseFloat(b.screen_size) || 0) - (parseFloat(a.screen_size) || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
-      refresh_desc: (a, b) => (parseFloat(b.refresh_rate) || 0) - (parseFloat(a.refresh_rate) || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
-      memory_desc: (a, b) => (Number(b.memory_gb) || 0) - (Number(a.memory_gb) || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
-      storage_desc: (a, b) => (Number(b.storage_gb) || 0) - (Number(a.storage_gb) || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
-      numpad_first: (a, b) => (Number(b.numeric_keypad) || 0) - (Number(a.numeric_keypad) || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
-      backlight_first: (a, b) => (Number(b.keyboard_backlight) || 0) - (Number(a.keyboard_backlight) || 0) || (a.source_rank ?? large) - (b.source_rank ?? large),
-    };
-    state.filtered.sort(comparators[mode] || comparators.source_rank);
+    switch (field) {
+      case "source_rank":
+        return -(item.source_count || 0) * 1e9 + (item.source_rank ?? large);
+      case "price":
+        return item.price ?? large;
+      case "screen_size":
+        return parseFloat(item.screen_size) || 0;
+      case "refresh_rate":
+        return parseFloat(item.refresh_rate) || 0;
+      case "memory_gb":
+        return Number(item.memory_gb) || 0;
+      case "storage_gb":
+        return Number(item.storage_gb) || 0;
+      case "numeric_keypad":
+        return Number(item.numeric_keypad) || 0;
+      case "keyboard_backlight":
+        return Number(item.keyboard_backlight) || 0;
+      case "source_count":
+        return Number(item.source_count) || 0;
+      case "brand":
+        return String(item.brand || "").toLocaleLowerCase("zh-CN");
+      case "cpu":
+        return String(item.cpu || "").toLocaleLowerCase("zh-CN");
+      default:
+        return item[field] ?? large;
+    }
+  }
+
+  function compareField(a, b, field, dir) {
+    const va = sortFieldValue(a, field);
+    const vb = sortFieldValue(b, field);
+    if (typeof va === "string" || typeof vb === "string") {
+      const cmp = String(va).localeCompare(String(vb), "zh-CN");
+      return dir === "asc" ? cmp : -cmp;
+    }
+    const n = (Number(va) || 0) - (Number(vb) || 0);
+    return dir === "asc" ? n : -n;
+  }
+
+  function sortItems() {
+    const rules = state.sortRules || [{ field: "source_rank", dir: "desc" }];
+    state.filtered.sort((a, b) => {
+      for (const rule of rules) {
+        const cmp = compareField(a, b, rule.field, rule.dir);
+        if (cmp !== 0) return cmp;
+      }
+      return 0;
+    });
+  }
+
+  function renderSortRules() {
+    const box = $("#sort-rules");
+    if (!box) return;
+    const rules = state.sortRules || [{ field: "source_rank", dir: "desc" }];
+    box.innerHTML = rules.map((rule, i) => {
+      const fieldOptions = SORT_FIELDS.map(([val, label]) =>
+        `<option value="${val}" ${rule.field === val ? "selected" : ""}>${label}</option>`).join("");
+      return `<div class="sort-rule" data-idx="${i}">
+        <span class="sort-idx">${i + 1}.</span>
+        <select data-sort-field="${i}">${fieldOptions}</select>
+        <button type="button" class="sort-dir ${rule.dir}" data-sort-dir="${i}" title="切换升/降序">${rule.dir === "asc" ? "↑ 升序" : "↓ 降序"}</button>
+        <button type="button" class="sort-remove" data-sort-remove="${i}" title="删除该关键字">×</button>
+      </div>`;
+    }).join("");
   }
 
   function renderResults() {
@@ -338,10 +404,50 @@
       state.filters.search = event.target.value;
       applyFilters();
     });
-    $("#sort").addEventListener("change", () => {
-      sortItems();
-      renderResults();
-    });
+    // Excel 式多级排序：添加关键字 / 切换方向 / 删除 / 改字段
+    const sortBox = $("#sort-rules");
+    if (sortBox) {
+      $("#add-sort")?.addEventListener("click", () => {
+        const rules = state.sortRules || [{ field: "source_rank", dir: "desc" }];
+        if (rules.length < 6) {
+          rules.push({ field: "price", dir: "asc" });
+          state.sortRules = rules;
+          renderSortRules();
+          sortItems();
+          renderResults();
+        }
+      });
+      sortBox.addEventListener("change", (e) => {
+        const fieldEl = e.target.closest("[data-sort-field]");
+        if (fieldEl) {
+          const i = Number(fieldEl.dataset.sortField);
+          state.sortRules[i].field = fieldEl.value;
+          sortItems();
+          renderResults();
+          return;
+        }
+      });
+      sortBox.addEventListener("click", (e) => {
+        const dirBtn = e.target.closest("[data-sort-dir]");
+        if (dirBtn) {
+          const i = Number(dirBtn.dataset.sortDir);
+          state.sortRules[i].dir = state.sortRules[i].dir === "asc" ? "desc" : "asc";
+          renderSortRules();
+          sortItems();
+          renderResults();
+          return;
+        }
+        const rmBtn = e.target.closest("[data-sort-remove]");
+        if (rmBtn) {
+          const i = Number(rmBtn.dataset.sortRemove);
+          state.sortRules.splice(i, 1);
+          if (!state.sortRules.length) state.sortRules = [{ field: "source_rank", dir: "desc" }];
+          renderSortRules();
+          sortItems();
+          renderResults();
+        }
+      });
+    }
     $("#reset-filters").addEventListener("click", resetFilters);
     document.querySelectorAll("[data-view]").forEach((button) =>
       button.addEventListener("click", () => setView(button.dataset.view)));
@@ -371,6 +477,7 @@
         : "已加载最新数据";
       renderForcedFilters();
       renderFilterGroups();
+      renderSortRules();
       $("#status").hidden = true;
       setView(state.view);
       applyFilters();
