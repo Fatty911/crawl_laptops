@@ -1327,6 +1327,7 @@ def apply_deterministic_edits(worktree: Path) -> None:
 ''',
             '''            data/raw/jd/latest.json \\
             data/raw/pconline/latest.json \\
+            data/raw/machenike/latest.json \\
             --output data/work/candidate.json \\
 ''',
         ),

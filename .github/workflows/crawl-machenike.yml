@@ -30,9 +30,7 @@ jobs:
         run: pip install -q -r requirements.txt
 
       - name: Configure required crawler proxy
-        run: |
-          python scripts/setup_proxy_runtime.py
-          python scripts/proxy_manager.py health-check
+        run: python scripts/setup_proxy_runtime.py
 
       - name: Crawl MACHENIKE gaming notebooks
         run: |
