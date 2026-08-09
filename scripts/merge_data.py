@@ -630,6 +630,16 @@ def merge_group(records: list[dict[str, Any]]) -> dict[str, Any]:
     merged["cpu_voltage_type"] = _record_cpu_voltage(merged)
     merged["identity_key"] = build_identity_key(merged)
     merged = apply_keyboard_facts(merged)
+    # GPU 一致性清洗：dedicated_gpu 与 gpu/gpu_type 必须一致
+    # （ZOL 详情页 gpu 提取可能与标题判定冲突：集显标签+独显型号是数据错误）
+    dg = _coerce_bool(merged.get("dedicated_gpu"))
+    gpu_text = str(merged.get("gpu") or "")
+    if dg is False and re.search(r"\b(RTX|GTX|RX\s?\d|Arc\s?\d+|独显|独立显卡)\b", gpu_text, re.I):
+        # 集显标签但 gpu 是独显型号：清空 gpu（避免矛盾展示）
+        merged["gpu"] = ""
+        merged["gpu_type"] = "integrated"
+    elif dg is True and str(merged.get("gpu_type") or "") == "integrated":
+        merged["gpu_type"] = "dedicated"
     return merged
 
 
@@ -661,7 +671,11 @@ def merge_records(
         # Always derive the cross-source identity from normalized product data.
         # Crawler IDs and previously supplied keys are source-local evidence only.
         key = build_identity_key(record)
-        groups.setdefault(str(key), []).append(record)
+        # GPU 维度拆分：同 identity 下集显版/独显版是不同的 SKU（如 ThinkBook 16+
+        # Ultra5 集显版 vs Ultra9 独显版），拆成独立组避免"集显标签+独显型号"矛盾行
+        dg = _coerce_bool(record.get("dedicated_gpu"))
+        gpu_dim = "d" if dg is True else ("i" if dg is False else "?")
+        groups.setdefault(f"{str(key)}#{gpu_dim}", []).append(record)
 
     # 家族级融合（准确率受控）：按 brand|family|cpu家族 归桶。
     # 桶内合并规则：

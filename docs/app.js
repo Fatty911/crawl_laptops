@@ -115,7 +115,8 @@
     return `<tr class="${multi ? "multi-source" : ""}">
       <td><a class="model-name" href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(item.title || item.model)}</a>
         <span class="subtle">${escapeHtml(item.brand || "品牌待确认")}</span>${tags(item)}</td>
-      <td>${display(item.cpu)}<span class="subtle">${display(item.gpu)}</span></td>
+      <td>${display(item.cpu)}</td>
+      <td>${display(item.gpu)}</td>
       <td>${display(item.screen_size, "″")}<span class="subtle">${display(item.resolution)} · ${display(item.refresh_rate, "Hz")}</span></td>
       <td>${display(item.memory_gb, "GB")}<span class="subtle">${display(item.storage_gb, "GB SSD")}</span></td>
       <td><span class="price">${money(item.price)}</span><span class="subtle">参考价格</span></td>
