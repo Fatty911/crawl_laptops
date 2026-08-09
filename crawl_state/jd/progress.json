@@ -1,6 +1,7 @@
 {
-  "current_page": 9,
+  "current_page": 3,
   "scan_complete": true,
   "processed_ids": [],
-  "total_items": 300
+  "total_items": 120,
+  "empty_streak": 0
 }
