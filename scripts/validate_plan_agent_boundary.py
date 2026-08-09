@@ -118,8 +118,9 @@ def _validate_agent_step(
     if '--dir "$RUNNER_TEMP/opencode-agent"' not in run:
         errors.append(f"{prefix}: Agent step must run in the isolated temporary directory")
     # opencode yargs 的 --file 是 array 参数，会贪婪吞噬后续位置参数；
-    # 正确写法是 message 在前、--file prompt.md 在后（--file 仍必须存在）
-    if "--file prompt.md" not in run:
+    # 正确写法是 message 在前、--file 在后（--file 仍必须存在）。
+    # --file 路径可为字面 prompt.md（相对 --dir 解析）或 $RUNNER_TEMP 完整路径
+    if not re.search(r'--file (?:prompt\.md|"\$RUNNER_TEMP/opencode-agent/prompt\.md")', run):
         errors.append(f"{prefix}: Agent step must read the copied prompt file")
     if "\n" in run or any(operator in run for operator in (";", "&&", "||", "|")):
         errors.append(f"{prefix}: Agent step must contain only one OpenCode command")
