@@ -3,6 +3,10 @@ name: Crawl PConline
 on:
   workflow_dispatch:
     inputs:
+      catalog:
+        description: '抓取全量产品库（五年机型，s1 分页）而非热门榜'
+        required: false
+        default: 'false'
       force_restart:
         description: '强制重新开始（清除增量进度）'
         required: false
@@ -111,7 +115,7 @@ jobs:
             exit 0
           fi
           set +e
-          python scripts/ai_pconline_repair.py run-sandboxed             --out "$RUNNER_TEMP/ai-sandbox-out" --             python scripts/crawl_pconline.py             --output /out/latest.json             --time-limit "$RUN_TIME"             --max-items "$MAX_ITEMS"             --min-records 50
+          python scripts/ai_pconline_repair.py run-sandboxed             --out "$RUNNER_TEMP/ai-sandbox-out" --             python scripts/crawl_pconline.py             --output /out/latest.json             --time-limit "$RUN_TIME"             --max-items "$MAX_ITEMS"             --min-records 50             ${{ github.event.inputs.catalog == 'true' && '--catalog' || '' }}
           EXIT_CODE=$?
           set -e
           echo "PConline crawl exit code: $EXIT_CODE"

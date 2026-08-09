@@ -168,11 +168,18 @@ PAGE_SIZE = 25
 EMPTY_STREAK_LIMIT = 3
 
 
-def ranking_url(offset: int) -> str:
-    return (
-        f"{BASE_URL}/notebook/s10.shtml"
-        if offset <= 0 else f"{BASE_URL}/notebook/{offset}s10.shtml"
-    )
+def ranking_url(offset: int, catalog: bool = False) -> str:
+    """榜单页 URL：s10=热门榜（默认），s1=全量产品库（五年机型，每页 113 条）。"""
+    suffix = "s1.shtml" if catalog else "s10.shtml"
+    if offset <= 0:
+        return f"{BASE_URL}/notebook/{suffix}"
+    return f"{BASE_URL}/notebook/{offset}{suffix}"
+
+
+def page_size(catalog: bool) -> int:
+    """分页步长：全量库与热门榜都是 offset 步长 25（s1 每页显示 113 条，
+    但 offset 是累计起点，步长仍 25；重复条目由 merge_new_items 去重）。"""
+    return PAGE_SIZE
 
 
 def parse_specs(html: Any) -> dict[str, str]:
@@ -441,6 +448,7 @@ def crawl_incremental(
     time_limit: float,
     max_pages: int = 0,
     max_items: int = 0,
+    catalog: bool = False,
 ) -> int:
     """Long-run incremental crawl with a persistent cursor.
 
@@ -480,7 +488,9 @@ def crawl_incremental(
                 break
             try:
                 page_items, final_url = _fetch_ranking_with_node_retry(
-                    session, ranking_url((page - 1) * PAGE_SIZE), page, node_mgr, human_delay(delay)
+                    session,
+                    ranking_url((page - 1) * page_size(catalog), catalog),
+                    page, node_mgr, human_delay(delay),
                 )
             except Exception as exc:
                 print(
@@ -600,10 +610,11 @@ def main() -> int:
             args.output,
             args.progress_dir,
             args.delay,
-            args.min_records,
-            args.time_limit,
-            args.max_pages,
-            args.max_items,
+            min_records=args.min_records,
+            time_limit=args.time_limit,
+            max_pages=args.max_pages,
+            max_items=args.max_items,
+            catalog=args.catalog,
         )
     try:
         items = crawl(args.pages, args.max_items, args.delay, args.time_limit)
