@@ -136,6 +136,15 @@ jobs:
         if: always()
         run: python scripts/setup_proxy_runtime.py --clear
 
+      - name: Set artifact name
+        id: artname
+        run: |
+          if [ "${{ github.event.inputs.catalog }}" = "true" ]; then
+            echo "prefix=pconline-catalog-data-" >> "$GITHUB_OUTPUT"
+          else
+            echo "prefix=pconline-data-" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set artifact date
         if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
         id: date
@@ -145,7 +154,7 @@ jobs:
         if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
         uses: actions/upload-artifact@main
         with:
-          name: pconline-data-${{ steps.date.outputs.date }}
+          name: ${{ steps.artname.outputs.prefix }}${{ steps.date.outputs.date }}
           path: data/raw/pconline/latest.json
           if-no-files-found: error
           retention-days: 30

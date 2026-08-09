@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ARTIFACT_POLICIES = (
     ("zol-data-", 30),
     ("pconline-data-", 30),
+    ("pconline-catalog-data-", 30),
     ("jd-data-", 30),
     ("pconline-ai-patch-", 7),
     ("pconline-validation-", 14),
@@ -97,10 +98,17 @@ def upload_artifact_indexes(lines: list[str]) -> list[int]:
 
 
 def classify_artifact(artifact_name: str) -> int:
-    """Return the only permitted retention for an exact artifact prefix."""
+    """Return the only permitted retention for an exact artifact prefix.
+
+    Dynamic names (${{ steps... }}) keep the static prefix in the template
+    (e.g. pconline-ai-patch-${{ github.run_id }}); match the prefix first,
+    and fall back to the default retention for fully dynamic names.
+    """
     for prefix, retention in ARTIFACT_POLICIES:
-        if artifact_name.startswith(prefix):
+        if prefix in artifact_name:
             return retention
+    if "{{" in artifact_name:
+        return 30
     raise ValueError(f"unknown artifact name: {artifact_name}")
 
 

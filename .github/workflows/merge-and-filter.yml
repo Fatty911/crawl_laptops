@@ -74,6 +74,18 @@ jobs:
             --min-records 50 \
             2> >(tee "$RUNNER_TEMP/pconline-artifact.err" >&2)
           pconline_status=$?
+          # catalog 全量库（五年机型）：若存在则下载并合并到 PConline raw
+          python scripts/download_latest_crawler_artifact.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow crawl-pconline.yml \
+            --artifact-prefix pconline-catalog-data- \
+            --output data/raw/pconline/catalog.json \
+            --min-records 1 \
+            2> >(tee "$RUNNER_TEMP/pconline-catalog-artifact.err" >&2)
+          catalog_status=$?
+          if [ "$catalog_status" -eq 0 ] && [ -s data/raw/pconline/catalog.json ]; then
+            python scripts/merge_pconline_catalog.py
+          fi
           set -e
 
           if [ "$zol_status" -ne 0 ] &&
