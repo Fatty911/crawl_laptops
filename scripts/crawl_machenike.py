@@ -21,15 +21,26 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from scripts.crawler_utils import (
-    absolute_url,
-    clean_text,
-    gpu_fields,
-    keyboard_flags,
-    make_session,
-    parse_cpu_fields,
-    text_from_spec,
-)
+try:
+    from scripts.crawler_utils import (
+        absolute_url,
+        clean_text,
+        gpu_fields,
+        keyboard_flags,
+        make_session,
+        parse_cpu_fields,
+        text_from_spec,
+    )
+except ModuleNotFoundError:
+    from crawler_utils import (
+        absolute_url,
+        clean_text,
+        gpu_fields,
+        keyboard_flags,
+        make_session,
+        parse_cpu_fields,
+        text_from_spec,
+    )
 
 BASE_URL = "https://www.machenike.com"
 LIST_URL = f"{BASE_URL}/lists/1.html"          # 电竞游戏本列表
@@ -42,7 +53,10 @@ BARE_BONE_FORM = "游戏本"
 
 def fetch(session: Any, url: str, *, retries: int = 3, delay: float = 1.0) -> str:
     """GET with retry/backoff; returns HTML text (get_html returns a soup)."""
-    from scripts.crawler_utils import get_html
+    try:
+        from scripts.crawler_utils import get_html
+    except ModuleNotFoundError:
+        from crawler_utils import get_html
 
     last: Exception | None = None
     for attempt in range(1, retries + 1):
