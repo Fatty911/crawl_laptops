@@ -114,7 +114,8 @@ jobs:
           if [ "$zol_status" -ne 0 ]; then
             exit "$zol_status"
           fi
-          if [ "$jd_status" -ne 0 ]; then
+          # JD artifact 过期/缺失时容忍（JD 仅少量补充，不阻断 merge 主链）
+          if [ "$jd_status" -ne 0 ] && ! grep -Fq "no unexpired artifact" "$RUNNER_TEMP/jd-artifact.err"; then
             exit "$jd_status"
           fi
           if [ "$pconline_status" -ne 0 ]; then

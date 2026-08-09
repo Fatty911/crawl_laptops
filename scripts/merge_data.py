@@ -241,6 +241,9 @@ def utc_now() -> str:
 
 
 def load_records(path: str | Path) -> list[dict[str, Any]]:
+    if not Path(path).exists():
+        print(f"skipping missing raw source: {path}", file=sys.stderr)
+        return []
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if isinstance(payload, list):
         return payload
