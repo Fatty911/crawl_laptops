@@ -55,3 +55,23 @@ def test_parse_series_dedup():
 
 def test_list_url():
     assert LIST_URL == "https://www.machenike.com/lists/1.html"
+
+
+def test_is_notebook_filter():
+    from scripts.crawl_machenike import is_notebook
+
+    # 笔记本保留
+    assert is_notebook("机械师曙光16Pro 4090游戏本")
+    assert is_notebook("机械师星辰S15 3050")
+    assert is_notebook("机械师F117-FPAR27P")
+    assert is_notebook("机械师T58-V 11代i7游戏本")
+    # 外设/台式机/配件剔除
+    assert not is_notebook("机械师23.8英寸 电竞屏游戏显示器")
+    assert not is_notebook("K31 87按键机械键盘")
+    assert not is_notebook("机械师TWS真无线蓝牙耳机")
+    assert not is_notebook("机械师未来战舰III代 游戏台式机")
+    assert not is_notebook("机械师Mini GTR 迷你主机")
+    assert not is_notebook("机械师曙光16Pro 水冷箱")
+    assert not is_notebook("i7-10870H 8核处理器,仅供升级选项使用")
+    assert not is_notebook("升级144Hz电竞屏")
+    assert not is_notebook("机械师氮化镓充电器")

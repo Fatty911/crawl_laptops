@@ -121,6 +121,27 @@ def parse_series(html: str, series_name: str) -> list[dict[str, Any]]:
     return items
 
 
+# 外设/台式机/配件垃圾词（机械师官网列表混入大量非笔记本商品）
+JUNK_TITLE = re.compile(
+    r"鼠标|键盘|耳机|显示器|屏幕|音响|音箱|充电器|氮化镓|背包|箱包|贴膜|按摩|礼盒|"
+    r"水冷箱|水冷|支架|扩展|hub|硬盘盒|散热|转接|U盘|移动硬盘|台式机|主机|迷你|mini|"
+    r"电竞主机|游戏电脑|电脑主机|设计台式|未来战舰|游戏台式|TWS|蓝牙耳机|笔记本散热|"
+    r"机械键盘|电竞屏|键鼠|工作站|仅供升级|升级选项|升级144|补差价",
+    re.I,
+)
+# 笔记本系列名（标题无"笔记本"字样但属这些系列的保留）
+NOTEBOOK_SERIES = ("曙光", "星辰", "F117", "T90", "T58", "创物者", "飞行家", "Machcreator", "设计本")
+
+
+def is_notebook(title: str) -> bool:
+    """仅保留笔记本商品（剔除台式机/外设/配件/升级件）。"""
+    if JUNK_TITLE.search(title):
+        return False
+    if re.search(r"游戏本|笔记本|notebook", title, re.I):
+        return True
+    return any(series in title for series in NOTEBOOK_SERIES)
+
+
 def parse_product(html: str, item: dict[str, Any]) -> dict[str, Any]:
     """Enrich one SKU from its product detail page (spec table)."""
     soup = BeautifulSoup(html, "html.parser")
@@ -199,6 +220,8 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
             if max_items and len(items) >= max_items:
                 break
             title = card["title"]
+            if not is_notebook(title):
+                continue  # 剔除台式机/外设/配件（机械师列表混入大量非笔记本）
             if title in seen:
                 continue
             seen.add(title)
