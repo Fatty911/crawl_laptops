@@ -1352,7 +1352,7 @@ def apply_deterministic_edits(worktree: Path) -> None:
         ),
         (
             "--raw data/raw/zol/latest.json data/raw/jd/latest.json \\",
-            "--raw data/raw/zol/latest.json data/raw/jd/latest.json data/raw/pconline/latest.json \\",
+            "--raw data/raw/zol/latest.json data/raw/jd/latest.json data/raw/pconline/latest.json data/raw/machenike/latest.json \\",
         ),
         (
             "Automated verified dataset from ZOL and JD.",
