@@ -75,3 +75,19 @@ def test_is_notebook_filter():
     assert not is_notebook("i7-10870H 8核处理器,仅供升级选项使用")
     assert not is_notebook("升级144Hz电竞屏")
     assert not is_notebook("机械师氮化镓充电器")
+    # 电脑包（含"笔记本"字样但实为包）必须剔除
+    assert not is_notebook("机械师 多功能笔记本电脑包")
+    assert not is_notebook("机械师空间站 笔记本电脑包")
+    assert not is_notebook("机械师飞行家笔记本电脑包")
+    # 笔记本系列名（含"空间站/飞行家"但为真笔记本）必须保留
+    assert is_notebook("机械师空间站游戏本")
+    assert is_notebook("机械师飞行家游戏本")
+
+
+def test_is_plausible_price():
+    from scripts.crawl_machenike import is_plausible_price
+
+    assert not is_plausible_price(499)   # 异常低价（配件/错误标价）
+    assert is_plausible_price(1099)      # 低价但可能是真实
+    assert is_plausible_price(6999)
+    assert is_plausible_price(None)      # 未知价格放行

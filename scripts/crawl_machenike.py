@@ -126,7 +126,8 @@ JUNK_TITLE = re.compile(
     r"鼠标|键盘|耳机|显示器|屏幕|音响|音箱|充电器|氮化镓|背包|箱包|贴膜|按摩|礼盒|"
     r"水冷箱|水冷|支架|扩展|hub|硬盘盒|散热|转接|U盘|移动硬盘|台式机|主机|迷你|mini|"
     r"电竞主机|游戏电脑|电脑主机|设计台式|未来战舰|游戏台式|TWS|蓝牙耳机|笔记本散热|"
-    r"机械键盘|电竞屏|键鼠|工作站|仅供升级|升级选项|升级144|补差价",
+    r"机械键盘|电竞屏|键鼠|工作站|仅供升级|升级选项|升级144|补差价|"
+    r"电脑包|笔记本包|内胆包|双肩包|手提包|保护套|收纳包|电脑背包|电脑内胆|电脑双肩",
     re.I,
 )
 # 笔记本系列名（标题无"笔记本"字样但属这些系列的保留）
@@ -134,12 +135,19 @@ NOTEBOOK_SERIES = ("曙光", "星辰", "F117", "T90", "T58", "创物者", "飞�
 
 
 def is_notebook(title: str) -> bool:
-    """仅保留笔记本商品（剔除台式机/外设/配件/升级件）。"""
+    """仅保留笔记本商品（剔除台式机/外设/配件/升级件/电脑包）。"""
     if JUNK_TITLE.search(title):
         return False
     if re.search(r"游戏本|笔记本|notebook", title, re.I):
         return True
     return any(series in title for series in NOTEBOOK_SERIES)
+
+
+def is_plausible_price(price: float | None) -> bool:
+    """价格合理性：游戏本 <500 元视为异常（配件/错误标价）。"""
+    if price is None:
+        return True
+    return price >= 500
 
 
 def parse_product(html: str, item: dict[str, Any]) -> dict[str, Any]:
@@ -221,7 +229,9 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
                 break
             title = card["title"]
             if not is_notebook(title):
-                continue  # 剔除台式机/外设/配件（机械师列表混入大量非笔记本）
+                continue  # 剔除台式机/外设/配件/电脑包（机械师列表混入大量非笔记本）
+            if card.get("price") is not None and not is_plausible_price(card.get("price")):
+                continue  # 异常低价（<500）视为配件/错误标价
             if title in seen:
                 continue
             seen.add(title)
