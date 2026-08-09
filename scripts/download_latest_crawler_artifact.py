@@ -33,9 +33,17 @@ def newest_artifact(
     session: requests.Session, repo: str, workflow: str, prefix: str
 ) -> dict[str, Any]:
     runs_url = f"{API}/repos/{repo}/actions/workflows/{workflow}/runs"
+    # 不要求 run status=success：artifact 在 run 完成前上传（长爬虫 progress），
+    # 且 run 完成后 status 才变 success——要求 success 会跳过"刚上传完的 run"，
+    # 取到更旧的 artifact（机械师 13:16 artifact 被 12:54 旧版覆盖的根因）
+    # 不要求 run status=success：artifact 在 run 完成前上传（长爬虫 progress），
+    # 且 run 完成后 status 才变 success——要求 success 会跳过"刚上传完的 run"，
+    # 取到更旧的 artifact（机械师 13:16 artifact 被 12:54 旧版覆盖的根因）。
+    # 排除明确失败的 run；in_progress/completed(success) 都接受（artifact 新鲜度优先）。
     runs = api_get(
-        session, runs_url, params={"status": "success", "branch": "main", "per_page": 20}
+        session, runs_url, params={"branch": "main", "per_page": 20}
     ).json().get("workflow_runs", [])
+    runs = [run for run in runs if run.get("conclusion") != "failure"]
     for run in runs:
         artifacts_url = f"{API}/repos/{repo}/actions/runs/{run['id']}/artifacts"
         artifacts = api_get(session, artifacts_url, params={"per_page": 100}).json().get(
