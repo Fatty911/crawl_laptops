@@ -30,6 +30,9 @@ def main() -> int:
 
     raw_summaries = []
     for path in args.raw:
+        if not Path(path).exists():
+            print(f"skipping missing raw source: {path}", file=sys.stderr)
+            continue
         payload = load(path)
         rows = items(payload)
         source = (

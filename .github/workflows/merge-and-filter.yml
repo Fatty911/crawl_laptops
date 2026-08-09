@@ -161,7 +161,7 @@ jobs:
         if: steps.artifacts.outputs.skip != 'true'
         run: |
           python scripts/analysis/merge_evidence_report.py \
-            --raw data/raw/zol/latest.json data/raw/jd/latest.json data/raw/pconline/latest.json \
+            --raw data/raw/zol/latest.json data/raw/jd/latest.json data/raw/pconline/latest.json data/raw/machenike/latest.json \
             --merged dist/laptops-latest.json \
             --rejected data/work/rejected.json \
             --output dist/merge-evidence-report.json
