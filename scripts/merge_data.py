@@ -46,6 +46,7 @@ BRAND_ALIASES = {
     "msi": "微星",
     "microsoft": "微软",
     "机械革命": "机械革命",
+    "机械师": "机械师",
     "apple": "苹果",
 }
 
@@ -323,12 +324,30 @@ def canonical_model_family(record: dict[str, Any]) -> str:
             text = re.split(r"[（(]", text, maxsplit=1)[0].strip()
         elif sources == {"JD"}:
             text = clean_jd_title_identity(text)
+        elif sources == {"Machinike"}:
+            # 机械师官网 SKU 标题剥离 SKU 配置词（CPU/GPU 代号、配色、版本词）
+            _sku_tokens = (
+                "R[579]", "U[3579]", "i[3579]", "13代", "11代", "202[3-6]款?",
+                "\d{3,4}(?:Ti)?", "星釉白", "星釉黑", "新", "Pro", "Air", "Plus", "Max",
+            )
+            _prev = None
+            while _prev != text:
+                _prev = text
+                for _tok in _sku_tokens:
+                    _pat = "\s+" + _tok + "[" + chr(92) + "s" + chr(92) + "u3000]*"
+                    text = re.sub(_pat, " ", text)
+            text = text.strip()
+
 
     family = _identity_text(text)
     canonical_brand = normalize_brand(
         record.get("brand"), str(record.get("title", ""))
     )
-    brand_labels = {str(record.get("brand") or ""), canonical_brand}
+    brand_labels = {canonical_brand}
+    # 原始 brand 字段若含括号/配置信息（如 ZOL 机械师整标题），不参与前缀剥离
+    raw_brand = str(record.get("brand") or "")
+    if raw_brand and "(" not in raw_brand and "（" not in raw_brand and len(raw_brand) <= 12:
+        brand_labels.add(raw_brand)
     brand_labels.update(
         alias for alias, canonical in BRAND_ALIASES.items() if canonical == canonical_brand
     )
@@ -401,6 +420,15 @@ def canonical_cpu_identity(record: dict[str, Any]) -> str:
         ),
     )
     for pattern, render in patterns:
+        match = re.search(pattern, value, flags=re.I)
+        if match:
+            return render(match).lower()
+    family_patterns = (
+        (r"\b(?:AMD)?\s*(?:Ryzen|锐龙|R)\s*([3579])\b", lambda m: f"amd-r{m.group(1)}"),
+        (r"\b(?:Intel|英特尔)?\s*(?:Core|酷睿)?\s*i([3579])\b", lambda m: f"intel-i{m.group(1)}"),
+        (r"\b(?:Intel|英特尔)?\s*(?:Core|酷睿)?\s*Ultra\s*([3579])\b", lambda m: f"intel-ultra{m.group(1)}"),
+    )
+    for pattern, render in family_patterns:
         match = re.search(pattern, value, flags=re.I)
         if match:
             return render(match).lower()
@@ -605,6 +633,24 @@ def merge_group(records: list[dict[str, Any]]) -> dict[str, Any]:
     return merged
 
 
+def _cpu_family(cpu_identity: str) -> str:
+    """CPU 家族：amd-r9-7945hx -> amd-r9；amd-r9 -> amd-r9；unknown 兜底。"""
+    value = str(cpu_identity or "").lower()
+    m = re.match(r"(amd-r[3579]|intel-i[3579]|intel-ultra[3579])", value)
+    return m.group(1) if m else "unknown"
+
+
+def _cfg_compatible(a: Any, b: Any) -> bool:
+    """配置兼容：同值/一方缺失/差值在容差内视为兼容；否则不兼容（不合并）。"""
+    if a is None or b is None:
+        return True
+    try:
+        na, nb = float(a), float(b)
+    except (TypeError, ValueError):
+        return str(a) == str(b)
+    return abs(na - nb) <= max(0.05 * max(na, nb), 1.0)
+
+
 def merge_records(
     records: Iterable[dict[str, Any]], *, publish_only: bool = True
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -617,9 +663,56 @@ def merge_records(
         key = build_identity_key(record)
         groups.setdefault(str(key), []).append(record)
 
+    # 家族级融合（准确率受控）：按 brand|family|cpu家族 归桶。
+    # 桶内合并规则：
+    #  - 两边都有具体 CPU 型号且不同（8940HX vs 8945HX）→ 不合并（防误并）
+    #  - 任一方为家族级（机械师 R9）→ 合并（该 SKU 本就只标家族）
+    #  - 内存/存储配置冲突（差值>5%）→ 不合并
+    family_groups: dict[str, list[dict[str, Any]]] = {}
+    for key, group in groups.items():
+        merged = merge_group(group)
+        cpu = canonical_cpu_identity(merged)
+        fkey = (
+            f"{_identity_text(normalize_brand(merged.get('brand'), str(merged.get('title',''))))}"
+            f"|{canonical_model_family(merged)}|{_cpu_family(cpu)}"
+        )
+        family_groups.setdefault(fkey, []).append(group)
+
+    final_groups: list[list[dict[str, Any]]] = []
+    for fkey, bucket in family_groups.items():
+        if len(bucket) == 1:
+            final_groups.extend(bucket)
+            continue
+        # 桶内多组：家族级子桶（无具体型号）与同家族的具体型号子桶合并；
+        # 不同具体型号之间（8940HX vs 8945HX）绝不合并（防误并）
+        exact_buckets: dict[str, list[dict[str, Any]]] = {}
+        for group in bucket:
+            merged = merge_group(group)
+            cpu = canonical_cpu_identity(merged)
+            exact_key = cpu if re.search(r"\d{3,5}", cpu) else "family"
+            exact_buckets.setdefault(exact_key, []).append(group)
+        family_sub = exact_buckets.pop("family", [])
+        # 家族级记录先与各具体型号子桶尝试合并（配置兼容时）
+        for exact_key, sub in exact_buckets.items():
+            merged_bucket: list[dict[str, Any]] = []
+            for group in sub:
+                merged_bucket.append(merge_group(group))
+            for fg in family_sub:
+                fm = merge_group(fg)
+                base = merged_bucket[0] if merged_bucket else None
+                if base and (_cfg_compatible(base.get("memory_gb"), fm.get("memory_gb"))
+                             and _cfg_compatible(base.get("storage_gb"), fm.get("storage_gb"))):
+                    merged_bucket.append(fm)
+                else:
+                    final_groups.append([fm])
+            final_groups.append(merged_bucket if merged_bucket else [])
+        # 剩余的家族级子桶（无具体型号子桶可合并时）
+        for fg in family_sub:
+            final_groups.append([merge_group(fg)])
+
     accepted: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
-    for group in groups.values():
+    for group in final_groups:
         merged = merge_group(group)
         allowed, reasons = meets_publish_requirements(merged)
         if allowed or not publish_only:
