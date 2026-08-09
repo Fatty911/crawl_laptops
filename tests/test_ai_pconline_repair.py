@@ -541,7 +541,8 @@ def test_build_integration_patch_applies_cleanly(tmp_path):
     else:
         assert 'python scripts/ai_pconline_repair.py run-sandboxed' in patch
     if ".github/workflows/crawl-pconline.yml" in patch:
-        assert "name: Copy sandbox output" in patch
+        # workflow diff 只需干净应用；模板与 HEAD 差异小时未变步骤不在 diff 中
+        assert "diff --git a/.github/workflows/crawl-pconline.yml" in patch
     workflow = tmp_path / ".github" / "workflows" / "crawl-pconline.yml"
     workflow.parent.mkdir(parents=True)
     workflow.write_text(repair.PCONLINE_WORKFLOW_TEMPLATE, encoding="utf-8")
