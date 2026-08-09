@@ -239,11 +239,16 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
                 record["gpu"] = m_gpu.group(1).replace(" ", "")
                 record["gpu_type"] = "dedicated"
                 record["dedicated_gpu"] = True
-            # 游戏本类目弱证据：蓝天模具游戏本标配数字键盘 + 背光
+            # 游戏本类目弱证据：蓝天模具游戏本标配数字键盘 + 背光键盘
             if record.get("numeric_keypad") is None:
                 record["numeric_keypad"] = True
                 record.setdefault("evidence", {})["numeric_keypad"] = (
                     "准系统游戏本类目弱证据（蓝天模具标配数字键盘）"
+                )
+            if record.get("keyboard_backlight") is None:
+                record["keyboard_backlight"] = True
+                record.setdefault("evidence", {})["keyboard_backlight"] = (
+                    "准系统游戏本类目弱证据（蓝天模具标配背光键盘）"
                 )
             items.append(record)
 
