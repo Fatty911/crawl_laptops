@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 import json
 import os
 import re
@@ -72,6 +73,10 @@ except ModuleNotFoundError:
     )
 
 BASE_URL = "https://detail.zol.com.cn"
+
+# 排名页抓取重试：SSLError/超时等网络异常按指数退避重试，避免单次失败丢弃整轮
+MAX_PAGE_FETCH_RETRIES = 3
+PAGE_RETRY_BACKOFF = 5  # 首次重试等待秒数（5/10/20s 退避）
 # rank.zol.com.cn no longer resolves.  This is ZOL's server-rendered equivalent:
 # the notebook catalogue is ordered by its "热门排行" value and exposes the
 # same product IDs and detail pages as the retired ranking host.
@@ -358,17 +363,33 @@ def crawl_incremental(
             if max_items and len(items) >= max_items:
                 progress.scan_complete = True
                 break
-            try:
-                html, final_url = get_html(
-                    session,
-                    RANKING_URL.format(page=page),
-                    encoding="gb18030",
-                    delay=human_delay(delay),
-                )
-            except Exception as exc:
+            # 页面抓取重试：SSLError/网络异常等按指数退避重试，重试耗尽才放弃本页
+            html = None
+            final_url = None
+            fetch_error: Exception | None = None
+            for attempt in range(1, MAX_PAGE_FETCH_RETRIES + 1):
+                try:
+                    html, final_url = get_html(
+                        session,
+                        RANKING_URL.format(page=page),
+                        encoding="gb18030",
+                        delay=human_delay(delay),
+                    )
+                    fetch_error = None
+                    break
+                except Exception as exc:
+                    fetch_error = exc
+                    wait = PAGE_RETRY_BACKOFF * (2 ** (attempt - 1))
+                    print(
+                        f"ZOL ranking page {page} fetch attempt {attempt}/{MAX_PAGE_FETCH_RETRIES} "
+                        f"failed: {type(exc).__name__}; retrying in {wait:.0f}s",
+                        file=sys.stderr,
+                    )
+                    time.sleep(wait)
+            if fetch_error is not None:
                 print(
-                    f"ZOL ranking page {page} fetch failed: "
-                    f"{type(exc).__name__}; will resume next run",
+                    f"ZOL ranking page {page} fetch failed after {MAX_PAGE_FETCH_RETRIES} "
+                    f"attempts: {type(fetch_error).__name__}; will resume next run",
                     file=sys.stderr,
                 )
                 break

@@ -125,10 +125,13 @@ jobs:
               sleep 1200
               git add -f crawl_state/zol/ 2>/dev/null
               git diff --cached --quiet 2>/dev/null || {
-                git commit -q -m "chore: ZOL crawl heartbeat [skip ci]" 2>/dev/null
-                git pull --rebase origin main 2>/dev/null
-                # push 需显式带 token 的 URL（checkout token 仅用于 clone）
-                git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" main 2>/dev/null
+                # 心跳 git 操作整体 60s 超时：网络卡住时自动放弃本轮心跳，
+                # 不阻塞主爬虫退出后的 kill/wait（防 step1 永久卡住）
+                timeout 60 bash -c '
+                  git commit -q -m "chore: ZOL crawl heartbeat [skip ci]" 2>/dev/null
+                  git pull --rebase origin main 2>/dev/null
+                  git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" main 2>/dev/null
+                ' 2>/dev/null || echo "心跳 git 操作超时，跳过本轮" >&2
               }
             done
           ) &
