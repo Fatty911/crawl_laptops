@@ -910,6 +910,22 @@ def check_mutable_merge_run(before_run: str, after_run: str, step_name: str) -> 
         "data/raw/pconline/latest.json \\",
         "--raw data/raw/zol/latest.json data/raw/jd/latest.json data/raw/pconline/latest.json \\",
         '--notes "Automated verified dataset from ZOL, JD, and PConline."',
+        # 机械师第 4 源 + JD artifact 缺失容忍（2026-08-09 接入）
+        "--workflow crawl-machenike.yml " + "\\",
+        "--artifact-prefix machenike-data- " + "\\",
+        "--output data/raw/machenike/latest.json " + "\\",
+        '2> >(tee "$RUNNER_TEMP/machenike-artifact.err" >&2) || true',
+        "machinike_ok=$?",
+        'if [ "$jd_status" -ne 0 ]; then',
+        'exit "$jd_status"',
+        'echo "Machinike artifact ready"',
+        'if [ "$machinike_ok" -eq 0 ] && [ -s data/raw/machenike/latest.json ]; then',
+        'if [ "$jd_status" -ne 0 ] && ! grep -Fq "no unexpired artifact" "$RUNNER_TEMP/jd-artifact.err"; then',
+        "data/raw/machenike/latest.json " + "\\",
+        "data/raw/pconline/catalog.json " + "\\",
+        "catalog_status=$?",
+        "--artifact-prefix pconline-catalog-data- " + "\\",
+        'python scripts/merge_pconline_catalog.py',
     }
     before_counts = Counter(line.strip() for line in before_run.splitlines() if line.strip())
     after_counts = Counter(line.strip() for line in after_run.splitlines() if line.strip())
@@ -918,6 +934,9 @@ def check_mutable_merge_run(before_run: str, after_run: str, step_name: str) -> 
         '--repo "$GITHUB_REPOSITORY" ' + "\\",
         "--min-records 50 " + "\\",
         "fi",
+        # merge 已有 pconline exit + AI-repair 再注入一次（去重后允许重复）
+        'if [ "$pconline_status" -ne 0 ]; then',
+        'exit "$pconline_status"',
     }
     for line, count in after_counts.items():
         if line not in old_lines and line not in allowed_insertions:
@@ -1309,7 +1328,7 @@ def apply_deterministic_edits(worktree: Path) -> None:
 ''',
         ),
         (
-            '''          if [ "$jd_status" -ne 0 ]; then
+            '''          if [ "$jd_status" -ne 0 ] && ! grep -Fq "no unexpired artifact" "$RUNNER_TEMP/jd-artifact.err"; then
             exit "$jd_status"
           fi
 ''',
