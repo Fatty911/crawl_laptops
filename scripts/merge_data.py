@@ -25,6 +25,9 @@ SOURCE_ALIASES = {
     "京东": "JD",
     "京东商城": "JD",
     "京东自营": "JD",
+    "机械师": "Machinike",
+    "Machinike": "Machinike",
+    "machenike": "Machinike",
     "pconline": "PConline",
     "太平洋电脑网": "PConline",
     "太平洋": "PConline",
@@ -677,12 +680,16 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     records: list[dict[str, Any]] = []
-    for input_path in args.inputs:
+    for index, input_path in enumerate(args.inputs):
         source_records = load_records(input_path)
-        if len(source_records) < args.min_source_records:
+        if not source_records:
+            continue  # 补充源（如 Machinike）无数据时容忍，不阻断 merge
+        # 主源（前 3 个）用全局阈值；补充源（第 4+ 个）用宽松阈值（Machinike 仅 ~30 条）
+        min_rows = args.min_source_records if index < 3 else 5
+        if len(source_records) < min_rows:
             print(
                 f"refusing merge: {input_path} has {len(source_records)} rows; "
-                f"minimum is {args.min_source_records}",
+                f"minimum is {min_rows}",
                 file=sys.stderr,
             )
             return 2

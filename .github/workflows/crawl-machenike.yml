@@ -1,0 +1,51 @@
+name: Crawl Machinike
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 13:30 Asia/Shanghai daily (afternoon window)
+    - cron: "30 5 * * *"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: machenike-crawl-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -q -r requirements.txt
+
+      - name: Configure required crawler proxy
+        run: |
+          python scripts/setup_proxy_runtime.py
+          python scripts/proxy_manager.py health-check
+
+      - name: Crawl MACHENIKE gaming notebooks
+        run: |
+          python scripts/crawl_machenike.py \
+            --output data/raw/machenike/latest.json \
+            --max-items 300 \
+            --min-records 5 \
+            --delay 0.5
+
+      - name: Upload crawler data
+        uses: actions/upload-artifact@main
+        with:
+          name: machenike-data-${{ github.run_id }}
+          path: data/raw/machenike/latest.json
+          retention-days: 30
+          if-no-files-found: error
