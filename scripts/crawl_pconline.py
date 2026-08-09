@@ -601,6 +601,11 @@ def main() -> int:
         default=0,
         help="incremental mode page cap (0 = unlimited)",
     )
+    parser.add_argument(
+        "--catalog",
+        action="store_true",
+        help="抓取全量产品库（s1 分页，五年机型）而非热门榜（s10）",
+    )
     args = parser.parse_args()
     if args.pages < 1 or args.max_items < 0 or args.min_records < 1:
         print("PConline CLI limits must be positive", file=sys.stderr)
