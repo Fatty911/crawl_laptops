@@ -166,6 +166,16 @@
     return groups;
   }
 
+
+  function skuList(item) {
+    const skus = Array.isArray(item.sku_configs) ? item.sku_configs : [];
+    if (!skus.length) return "";
+    const rows = skus.slice(0, 8).map((s) =>
+      `<li>${escapeHtml(s.gpu || "—")} · ${escapeHtml(s.memory || "—")}</li>`
+    ).join("");
+    return `<details class="sku-details"><summary>${skus.length} 个 SKU 配置</summary><ul class="sku-list">${rows}${skus.length > 8 ? `<li class="subtle">…共 ${skus.length} 个</li>` : ""}</ul></details>`;
+  }
+
   function cardTemplate(item) {
     const url = item.source_url || Object.values(item.source_urls || {})[0] || "#";
     const multi = Number(item.source_count) >= 2;
@@ -180,6 +190,7 @@
         <div><span>屏幕</span><strong>${display(item.screen_size, "″")} · ${display(item.refresh_rate, "Hz")}</strong></div>
         <div><span>内存 / 存储</span><strong>${display(item.memory_gb, "GB")} / ${display(item.storage_gb, "GB")}</strong></div>
       </div>
+      ${skuList(item)}
       <div class="card-footer">${sourceBadges(item)}<a href="${escapeHtml(url)}" target="_blank" rel="noopener">查看来源 →</a></div>
     </article>`;
   }

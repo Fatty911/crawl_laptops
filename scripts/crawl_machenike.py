@@ -91,6 +91,53 @@ def parse_list(html: str) -> list[str]:
     return sorted(links)
 
 
+def parse_sku_configs(detail_html: str) -> list[dict[str, str]]:
+    """从详情页 data-spec-value-name 提取 SKU 配置组合（笛卡尔积）。
+
+    机械师详情页 SKU 选择器：<li data-id="组:值" data-spec-value-name="配置">。
+    组标签如"选择显卡"（RTX4080 12G显存 2.5K屏）、内存组（32G+1TB）。
+    返回 [{gpu, screen, memory, storage}]，SKU 组合 = 各组选项笛卡尔积。
+    """
+    # 组容器：<dt>选择显卡</dt> + <li data-id="6:434" data-spec-value-name="...">
+    groups: list[tuple[str, list[str]]] = []
+    # 用 data-spec-value-name 分组：先找组标签再收集选项
+    for gm in re.finditer(r"<dt[^>]*>([^<]{1,20})</dt>", detail_html):
+        label = gm.group(1).strip()
+        if not label or label in ("配送至", "服务"):
+            continue
+        # 该 dt 后的 li 选项（到下一个 dt）
+        seg = detail_html[gm.end():]
+        next_dt = seg.find("<dt")
+        if next_dt >= 0:
+            seg = seg[:next_dt]
+        opts = re.findall(r'data-spec-value-name="([^"]*)"', seg)
+        if opts:
+            groups.append((label, opts))
+
+    if not groups:
+        return []
+
+    # 笛卡尔积
+    from itertools import product
+    combos = []
+    for combo in product(*[opts for _, opts in groups]):
+        record: dict[str, str] = {}
+        for label, _opts in groups:
+            pass
+        # 按组标签归类
+        for label, opts in groups:
+            value = combo[groups.index((label, opts))]
+            text = value.replace("\xa0", " ").strip()
+            if "显卡" in label:
+                record["gpu_raw"] = text
+            elif re.search(r"内存|存储", label):
+                record["mem_raw"] = text
+            else:
+                record.setdefault("extra", []).append(text)
+        combos.append(record)
+    return combos
+
+
 def parse_series(html: str, series_name: str) -> list[dict[str, Any]]:
     """Extract SKU cards from a MACHENIKE list page.
 
@@ -258,6 +305,38 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
             except RuntimeError as exc:
                 print(f"detail failed {card['url']}: {exc}", file=sys.stderr)
                 record["crawl_warning"] = "detail_failed"
+            # SKU 配置解析：data-spec-value-name 含每 SKU 的显卡/屏幕/内存/存储
+            try:
+                if detail_html:
+                    _skus = parse_sku_configs(detail_html)
+                    if _skus:
+                        # 用默认 SKU 的配置（首组组合）；SKU 级数据存 skus 字段供前端展开
+                        _s0 = _skus[0]
+                        if _s0.get("gpu_raw") and not record.get("gpu"):
+                            _g = _s0["gpu_raw"]
+                            _gm = re.match(r"(RTX\s?\d{4,5}|GTX\s?\d{4}|RX\s?\d{4}|Arc\s?\d+)", _g, re.I)
+                            if _gm:
+                                record["gpu"] = _gm.group(1).replace(" ", "")
+                                record["gpu_type"] = "dedicated"
+                                record["dedicated_gpu"] = True
+                            _sm = re.search(r"(\d+(?:\.\d+)?)K屏", _g)
+                            if _sm:
+                                record["resolution"] = _sm.group(1) + "K"
+                            _scm = re.search(r"(\d+(?:\.\d+)?)英寸|(\d+(?:\.\d+)?)吋", _g)
+                            if _scm and not record.get("screen_size"):
+                                record["screen_size"] = float(_scm.group(1) or _scm.group(2))
+                        if _s0.get("mem_raw") and not record.get("memory_gb"):
+                            _mm = re.match(r"(\d+)G\+(\d+)TB?", _s0["mem_raw"])
+                            if _mm:
+                                record["memory_gb"] = float(_mm.group(1))
+                                record["storage_gb"] = float(_mm.group(2)) * 1024
+                        # 全部 SKU 配置存起来（前端 SKU 展开）
+                        record["sku_configs"] = [
+                            {"gpu": s.get("gpu_raw", ""), "memory": s.get("mem_raw", "")}
+                            for s in _skus
+                        ]
+            except Exception:
+                pass
             # 详情页规格文本提取：页面含"13代i9-13900HX 24核"等描述（规格 JS 渲染但描述文本可提）
             try:
                 if detail_html:
