@@ -91,6 +91,24 @@ def parse_list(html: str) -> list[str]:
     return sorted(links)
 
 
+def parse_attr_specs(detail_html: str) -> dict[str, str]:
+    """解析机械师规格参数表（tab_attr 区 <li title="键：值">）。
+
+    返回 {"CPU型号": "i9-13900HX", "屏幕规格": "16英寸 UHD 4K 电竞屏", ...}
+    """
+    specs: dict[str, str] = {}
+    idx = detail_html.find('id="tab_attr"')
+    if idx < 0:
+        return specs
+    seg = detail_html[idx:idx + 8000]
+    for m in re.finditer(r'<li title="([^"]+)">', seg):
+        item = m.group(1)
+        if "：" in item:
+            key, value = item.split("：", 1)
+            specs[key.strip()] = value.strip()
+    return specs
+
+
 def parse_sku_configs(detail_html: str) -> list[dict[str, str]]:
     """从详情页 data-spec-value-name 提取 SKU 配置组合（笛卡尔积）。
 
@@ -337,16 +355,63 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
                         ]
             except Exception:
                 pass
-            # 详情页规格文本提取：页面含"13代i9-13900HX 24核"等描述（规格 JS 渲染但描述文本可提）
+            # 规格参数表提取（tab_attr li title）：CPU型号/屏幕规格/内存/存储——硬性字段
             try:
                 if detail_html:
-                    _dtxt = re.sub(r"<[^>]+>", " ", detail_html)
-                    _dm = re.search(r"(?:i[3579]|锐龙|R[579]|Ultra\s?[579])\s?-?\d{3,5}[A-Za-z0-9]*", _dtxt)
-                    if _dm and not record.get("cpu"):
-                        record["cpu"] = _dm.group(0).replace(" ", "")
-                        cb, cf = parse_cpu_fields(record["cpu"])
-                        record["cpu_brand"] = cb
-                        record["cpu_family"] = cf
+                    _attrs = parse_attr_specs(detail_html)
+                    if _attrs:
+                        _acpu = _attrs.get("CPU型号", "")
+                        _cur_cpu = str(record.get("cpu") or "")
+                        _cpu_is_weak = (
+                            not _cur_cpu
+                            or _cur_cpu.startswith(str(record.get("title", ""))[:10])
+                            or not re.search(r"\d{3,5}", _cur_cpu)
+                        )
+                        if _acpu and _cpu_is_weak:
+                            record["cpu"] = _acpu
+                            cb, cf = parse_cpu_fields(_acpu)
+                            record["cpu_brand"] = cb
+                            record["cpu_family"] = cf
+                        _ascr = _attrs.get("屏幕规格", "")
+                        if _ascr:
+                            _scm = re.search(r"(\d+(?:\.\d+)?)\s*英寸", _ascr)
+                            if _scm and not record.get("screen_size"):
+                                record["screen_size"] = float(_scm.group(1))
+                            _arm = re.search(r"(\d+(?:\.\d+)?)K|(UHD|FHD|2K|4K)", _ascr)
+                            if _arm and not record.get("resolution"):
+                                record["resolution"] = _arm.group(1) + "K" if _arm.group(1) else _arm.group(2)
+                        _amem = _attrs.get("内存容量", "")
+                        if _amem and not record.get("memory_gb"):
+                            _mm = re.search(r"(\d+)\s*G", _amem, re.I)
+                            if _mm:
+                                record["memory_gb"] = float(_mm.group(1))
+                        _asto = _attrs.get("固态硬盘", "")
+                        if _asto and not record.get("storage_gb"):
+                            _sm = re.search(r"(\d+(?:\.\d+)?)\s*(TB|GB)", _asto, re.I)
+                            if _sm:
+                                _v = float(_sm.group(1))
+                                record["storage_gb"] = _v * 1024 if _sm.group(2).upper() == "TB" else _v
+                            _proto = extract_storage_protocol(_asto)
+                            if _proto:
+                                record["storage_protocol"] = _proto
+                        _agpu = _attrs.get("独立显卡", "")
+                        if _agpu and not record.get("gpu"):
+                            _gm2 = re.search(r"(GeForce[^\s]*|RTX\s?\d{4,5}|GTX\s?\d{4}|RX\s?\d{4}|Arc\s?\d+)", _agpu, re.I)
+                            if _gm2:
+                                record["gpu"] = _gm2.group(1).replace(" ", "")
+                                record["gpu_type"] = "dedicated"
+                                record["dedicated_gpu"] = True
+            except Exception:
+                pass
+            # 描述文本提取：散热（双液金/双风扇等）
+            try:
+                if detail_html:
+                    _mdesc = re.search(r'<meta content="([^"]{100,})"', detail_html)
+                    _desc = _mdesc.group(1) if _mdesc else ""
+                    if _desc:
+                        _cool = re.search(r"([^，,；;]{0,10}(?:液金|风扇|热管)[^，,；;]{0,10})", _desc)
+                        if _cool and not record.get("cooling"):
+                            record["cooling"] = _cool.group(1).strip()
             except Exception:
                 pass
             # 描述文本提取：散热（双液金/双风扇等）/屏幕尺寸/分辨率
