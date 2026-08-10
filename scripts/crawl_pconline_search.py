@@ -105,12 +105,25 @@ def enrich_product(session: Any, url: str, delay: float) -> dict[str, Any] | Non
     title = re.split(r"_参数_|_报价_|_太平洋", raw_title)[0].strip()
     # 产品名（型号别称/产品名称），无则用清理后标题
     model_name = text_from_spec(specs, "型号别称", "产品名称", "型号") or title
-    # 品牌提取（标题前缀：联想/华为/苹果/荣耀 等）
+    # 品牌提取（中文品牌 + 英文品牌开头）
     brand = ""
-    for _b in ("联想", "华为", "苹果", "荣耀", "惠普", "华硕", "戴尔", "宏碁", "机械革命", "神舟", "雷神", "七彩虹", "Redmi", "小米", "微星"):
+    for _b in ("联想", "华为", "苹果", "荣耀", "惠普", "华硕", "戴尔", "宏碁", "机械革命", "神舟", "雷神", "七彩虹", "小米", "微星"):
         if _b in title:
             brand = _b
             break
+    if not brand:
+        for _b in ("ThinkPad", "ThinkBook", "HUAWEI", "ROG", "Redmi", "Acer", "Alienware", "LG", "Xiaomi", "VAIO", "MacBook", "HP", "ASUS", "DELL"):
+            if title.startswith(_b) or f" {_b} " in f" {title} ":
+                brand = _b
+                break
+    # 型号别称兜底：spec 里的品牌
+    if not brand:
+        _alias = text_from_spec(specs, "型号别称", "产品名称")
+        if _alias:
+            for _b in ("ThinkPad", "ThinkBook", "HUAWEI", "ROG", "Redmi", "Acer", "Alienware", "LG", "VAIO", "MacBook"):
+                if _b in str(_alias):
+                    brand = _b
+                    break
     # 关键规格
     mem_raw = text_from_spec(specs, "内存容量")
     sto_raw = text_from_spec(specs, "硬盘容量")
