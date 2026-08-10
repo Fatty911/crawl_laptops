@@ -71,6 +71,12 @@ AGENT_CALL_RE = re.compile(
 AGENT_NAME_RE = re.compile(r"\b(opencode|codex|hermes|kilo|claude)\b", re.I)
 
 # 跳过目录（应用本体/依赖/构建产物）
+SKIP_FILES = {
+    # 评审门禁工具：评审模型调用是门禁功能本身（产出评审证据），非业务直连
+    "review_gate_v2.py",
+    "review_gate.py",
+}
+
 SKIP_DIRS = {
     "node_modules", ".git", "__pycache__", "dist", "build", ".next",
     "docs", "public", "api", "packages", "client", "server",
@@ -153,6 +159,8 @@ def scan_root(root: Path) -> list[tuple[Path, list[tuple[int, str]]]]:
             if not fname.endswith((".py", ".js", ".ts", ".sh", ".yml", ".yaml")):
                 continue
             path = Path(dirpath) / fname
+            if fname in SKIP_FILES:
+                continue
             hits = scan_file(path)
             if hits:
                 findings.append((path.relative_to(root), hits))
