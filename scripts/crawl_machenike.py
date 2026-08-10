@@ -258,6 +258,18 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
             except RuntimeError as exc:
                 print(f"detail failed {card['url']}: {exc}", file=sys.stderr)
                 record["crawl_warning"] = "detail_failed"
+            # 详情页规格文本提取：页面含"13代i9-13900HX 24核"等描述（规格 JS 渲染但描述文本可提）
+            try:
+                if detail_html:
+                    _dtxt = re.sub(r"<[^>]+>", " ", detail_html)
+                    _dm = re.search(r"(?:i[3579]|锐龙|R[579]|Ultra\s?[579])\s?-?\d{3,5}[A-Za-z0-9]*", _dtxt)
+                    if _dm and not record.get("cpu"):
+                        record["cpu"] = _dm.group(0).replace(" ", "")
+                        cb, cf = parse_cpu_fields(record["cpu"])
+                        record["cpu_brand"] = cb
+                        record["cpu_family"] = cf
+            except Exception:
+                pass
             # 标题级规格兜底：CPU/GPU 从标题提取（i7HX 4060 等）
             title = record.get("title", "")
             m_cpu = re.search(r"(i[3579][-A-Za-z0-9HXK]*|R[579][-A-Za-z0-9HXK]*|Ultra\s?\d[\w]*|锐龙[^/（）()]*|酷睿[^/（）()]*)", title)
@@ -267,7 +279,24 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
                 cb, cf = parse_cpu_fields(record["cpu"])
                 record["cpu_brand"] = cb
                 record["cpu_family"] = cf
+            elif cpu_missing and str(record.get("cpu", "")).startswith(title[:10]):
+                # 标题无 CPU 家族词（如"曙光16Pro 4090"）：清空错误回退
+                record["cpu"] = ""
+                record["cpu_brand"] = ""
+                record["cpu_family"] = ""
             m_gpu = re.search(r"(RTX\s?\d{4,5}|GTX\s?\d{4}|RX\s?\d{4}|Arc\s?\d+)", title, re.I)
+            if not m_gpu:
+                # 裸数字 GPU（"4090游戏本"/"5060"）：补 RTX 前缀
+                # 排除 CPU 数字（5 位 i7-13900HX 等）和年份
+                _m = re.search(r"(?<![0-9A-Za-z])(\d{4}0?(?:Ti)?)(?![0-9A-Za-z])", title)
+                if _m:
+                    _g = _m.group(1)
+                    if _g in ("13900", "14900", "13620", "14650", "13700", "14700", "7945", "8945", "8845", "7840", "7940", "7735", "8840", "8940", "7940"):
+                        _m = None
+                if _m:
+                    record["gpu"] = "RTX " + _m.group(1)
+                    record["gpu_type"] = "dedicated"
+                    record["dedicated_gpu"] = True
             if m_gpu:
                 record["gpu"] = m_gpu.group(1).replace(" ", "")
                 record["gpu_type"] = "dedicated"
@@ -289,6 +318,15 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
                 record.setdefault("evidence", {})["keyboard_backlight"] = (
                     "准系统游戏本类目弱证据（蓝天模具标配背光键盘）"
                 )
+            # 游戏本类目独显默认：机械师列表来自"电竞游戏本"分类（独显游戏本），
+            # 除非标题明确"集显/核显"（如 曙光16S 集显版）
+            if record.get("dedicated_gpu") is None:
+                if re.search(r"集显|核显|集成显卡", title):
+                    record["dedicated_gpu"] = False
+                    record["gpu_type"] = "integrated"
+                else:
+                    record["dedicated_gpu"] = True
+                    record["gpu_type"] = "dedicated"
             items.append(record)
 
     if not items:
