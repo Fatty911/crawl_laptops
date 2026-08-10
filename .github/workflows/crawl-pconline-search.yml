@@ -39,7 +39,11 @@ jobs:
             --workflow crawl-zol.yml \
             --artifact-prefix zol-data- \
             --output data/raw/zol/latest.json \
-            --min-records 50
+            --min-records 50 || true
+          # ZOL artifact 缺失时用线上 Pages 数据兜底（含 ZOL 机型列表）
+          if [ ! -s data/raw/zol/latest.json ]; then
+            python scripts/fetch_zol_fallback.py data/raw/zol/latest.json
+          fi
 
       - name: Crawl PConline search supplements
         run: |
