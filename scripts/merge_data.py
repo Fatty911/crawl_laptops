@@ -366,6 +366,11 @@ def canonical_model_family(record: dict[str, Any]) -> str:
         if family.startswith(_tok):
             family = family[len(_tok):]
             break
+    # 营销后缀归一：AI元启/元启 等（ZOL 标题特有，同机型无此后缀时也应匹配）
+    for _tok in ("ai元启", "元启", "ai全能本"):
+        if family.endswith(_tok):
+            family = family[: -len(_tok)]
+            break
 
     # MSE 增强：剥离屏幕规格后缀（/2.5K /240Hz /OLED /2.5K屏）
     family = re.sub(r"/(?:\d+(?:\.\d+)?K|\d+Hz|OLED|\d+K屏)+$", "", family)
