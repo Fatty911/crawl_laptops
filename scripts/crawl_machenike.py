@@ -349,6 +349,23 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
                         record["cpu_family"] = cf
             except Exception:
                 pass
+            # 描述文本提取：散热（双液金/双风扇等）/屏幕尺寸/分辨率
+            try:
+                if detail_html:
+                    _mdesc = re.search(r'<meta name="description" content="([^"]*)"', detail_html)
+                    _desc = _mdesc.group(1) if _mdesc else ""
+                    if _desc:
+                        _cm = re.search(r"(\d+(?:\.\d+)?)\s*英寸", _desc)
+                        if _cm and not record.get("screen_size"):
+                            record["screen_size"] = float(_cm.group(1))
+                        _rm = re.search(r"(\d+(?:\.\d+)?)K", _desc)
+                        if _rm and not record.get("resolution"):
+                            record["resolution"] = _rm.group(1) + "K"
+                        _cool = re.search(r"([^，,；;]{0,8}(?:液金|风扇|热管|散热)[^，,；;]{0,8})", _desc)
+                        if _cool and not record.get("cooling"):
+                            record["cooling"] = _cool.group(1).strip()
+            except Exception:
+                pass
             # 标题级规格兜底：CPU/GPU 从标题提取（i7HX 4060 等）
             title = record.get("title", "")
             m_cpu = re.search(r"(i[3579][-A-Za-z0-9HXK]*|R[579][-A-Za-z0-9HXK]*|Ultra\s?\d[\w]*|锐龙[^/（）()]*|酷睿[^/（）()]*)", title)

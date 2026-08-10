@@ -121,8 +121,13 @@
         <span class="subtle">${escapeHtml(item.brand || "品牌待确认")}</span>${tags(item)}</td>
       <td>${display(item.cpu)}</td>
       <td>${display(item.gpu)}</td>
-      <td>${display(item.screen_size, "″")}<span class="subtle">${display(item.resolution)} · ${display(item.refresh_rate, "Hz")}</span></td>
-      <td>${display(item.memory_gb, "GB")}<span class="subtle">${display(item.storage_gb, "GB SSD")}</span></td>
+      <td>${display(item.screen_size, "″")}<span class="subtle">${display(item.screen_type)} · ${display(item.refresh_rate, "Hz")}</span></td>
+      <td>${display(item.resolution)}<span class="subtle">${display(item.color_gamut)}</span></td>
+      <td>${display(item.brightness, "nits")}</td>
+      <td>${display(item.memory_gb, "GB")}</td>
+      <td>${display(item.storage_gb, "GB")}</td>
+      <td>${display(item.storage_slots, "×M.2")}<span class="subtle">${display(item.storage_protocol)}</span></td>
+      <td>${display(item.cooling)}</td>
       <td><span class="price">${money(item.price)}</span><span class="subtle">参考价格</span></td>
       <td>${sourceBadges(item)}<span class="subtle">榜单 #${display(item.source_rank)}</span></td>
     </tr>`;

@@ -180,3 +180,45 @@ def text_from_spec(specs: dict[str, str], *names: str) -> str:
         if specs.get(name):
             return specs[name]
     return ""
+
+
+def extract_brightness(text: str) -> float | None:
+    """从规格文本提取屏幕亮度（nits）：SDR:500nits -> 500。"""
+    if not text:
+        return None
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:nit|nits|尼特)", text, re.I)
+    if m:
+        return float(m.group(1))
+    return None
+
+
+def extract_storage_protocol(text: str) -> str:
+    """从硬盘描述提取协议：SSD固态硬盘(PCIe4.0) -> PCIe4.0；NVMe/SATA 识别。"""
+    if not text:
+        return ""
+    value = str(text)
+    if re.search(r"NVMe", value, re.I):
+        return "NVMe"
+    m = re.search(r"PCIe\s?\d(?:\.\d)?", value, re.I)
+    if m:
+        return m.group(0).replace(" ", "")
+    if re.search(r"SATA", value, re.I):
+        return "SATA"
+    return ""
+
+
+def extract_storage_slots(text: str) -> int | None:
+    """从硬盘描述/接口文本提取 M.2 硬盘位数量。"""
+    if not text:
+        return None
+    value = str(text)
+    m = re.search(r"(\d+)\s*(?:个|×|x)\s*(?:M\.2|硬盘位)", value, re.I)
+    if m:
+        return int(m.group(1))
+    if re.search(r"双硬盘|两个硬盘|2\s*个硬盘", value, re.I):
+        return 2
+    if "M.2" in value and not re.search(r"\d+\s*个", value):
+        return 1
+    return None
+
+

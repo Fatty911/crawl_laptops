@@ -26,6 +26,9 @@ try:
         parse_cpu_fields,
         parse_number,
         parse_price,
+        extract_brightness,
+        extract_storage_protocol,
+        extract_storage_slots,
         text_from_spec,
         utc_now,
     )
@@ -44,6 +47,9 @@ except ModuleNotFoundError:
         parse_cpu_fields,
         parse_number,
         parse_price,
+        extract_brightness,
+        extract_storage_protocol,
+        extract_storage_slots,
         text_from_spec,
         utc_now,
     )
@@ -259,6 +265,24 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
             "memory_gb": parse_capacity_gb(memory) or item["memory_gb"],
             "storage_gb": parse_capacity_gb(storage) or item["storage_gb"],
             "battery_wh": parse_battery_wh(battery) or item["battery_wh"],
+            "brightness": (
+                extract_brightness(text_from_spec(specs, "亮度", "屏幕亮度"))
+                or item.get("brightness")
+            ),
+            "storage_protocol": (
+                extract_storage_protocol(text_from_spec(specs, "硬盘描述", "硬盘接口类型", "硬盘类型"))
+                or item.get("storage_protocol")
+            ),
+            "storage_slots": (
+                extract_storage_slots(text_from_spec(specs, "硬盘描述", "硬盘接口类型", "硬盘扩展"))
+                or item.get("storage_slots")
+            ),
+            "screen_type": (
+                text_from_spec(specs, "屏幕类型", "面板类型") or item.get("screen_type")
+            ),
+            "color_gamut": (
+                text_from_spec(specs, "DCI-P3色域", "色域") or item.get("color_gamut")
+            ),
             "weight_kg": parse_number(weight) or item["weight_kg"],
             "ports": [clean_text(part) for part in re.split(r"[；;]", ports_text) if clean_text(part)],
             "product_form": product_form,

@@ -15,6 +15,7 @@ try:
         absolute_url, clean_text, get_html, gpu_fields, infer_brand,
         keyboard_flags, make_session, parse_battery_wh, parse_capacity_gb,
         parse_cpu_fields, parse_number, parse_price, text_from_spec, utc_now,
+        extract_brightness, extract_storage_protocol, extract_storage_slots,
     )
     from scripts.merge_data import classify_cpu_voltage, extract_cpu_model
 except ModuleNotFoundError:
@@ -22,6 +23,7 @@ except ModuleNotFoundError:
         absolute_url, clean_text, get_html, gpu_fields, infer_brand,
         keyboard_flags, make_session, parse_battery_wh, parse_capacity_gb,
         parse_cpu_fields, parse_number, parse_price, text_from_spec, utc_now,
+        extract_brightness, extract_storage_protocol, extract_storage_slots,
     )
     from merge_data import classify_cpu_voltage, extract_cpu_model
 
@@ -309,6 +311,15 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
             "memory_gb": parse_capacity_gb(text_from_spec(specs, "内存容量")) or item["memory_gb"],
             "storage_gb": parse_capacity_gb(text_from_spec(specs, "硬盘容量", "存储容量")) or item["storage_gb"],
             "battery_wh": parse_battery_wh(text_from_spec(specs, "电池容量", "电池类型")) or item["battery_wh"],
+            "brightness": extract_brightness(text_from_spec(specs, "亮度", "屏幕亮度")) or item.get("brightness"),
+            "storage_protocol": extract_storage_protocol(
+                text_from_spec(specs, "硬盘接口", "硬盘描述", "硬盘类型")
+            ) or item.get("storage_protocol"),
+            "storage_slots": extract_storage_slots(
+                text_from_spec(specs, "硬盘接口", "硬盘描述", "硬盘扩展")
+            ) or item.get("storage_slots"),
+            "screen_type": text_from_spec(specs, "屏幕类型", "面板类型") or item.get("screen_type"),
+            "color_gamut": text_from_spec(specs, "色域", "DCI-P3色域") or item.get("color_gamut"),
             "weight_kg": parse_number(text_from_spec(specs, "笔记本重量", "产品重量", "重量")) or item["weight_kg"],
             "ports": [clean_text(x) for x in re.split(r"[；;]", ports_text) if clean_text(x)],
             "product_form": product_form, "spec_url": final_url,
