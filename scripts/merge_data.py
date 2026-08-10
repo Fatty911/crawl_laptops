@@ -587,6 +587,17 @@ def merge_group(records: list[dict[str, Any]]) -> dict[str, Any]:
                 merged[key] = deepcopy(value)
 
     sources = sorted({source for record in records for source in atomic_sources(record)})
+    # 键盘未验证标注：某源记录 numeric_keypad 缺失（None）但组内其它源有证据。
+    # 前端显示 "PConline(未验证键盘)"；若该源自身有键盘证据则不标注。
+    # 方案语义：仅标注 PConline（该源键盘项缺失但其它配置已匹配）。
+    # 若 PConline 自身记录有键盘证据（数字键盘/小键盘字样）则不标注。
+    if "PConline" in sources:
+        pcl_records = [r for r in records if "PConline" in atomic_sources(r)]
+        if pcl_records and all(
+            _coerce_bool(r.get("numeric_keypad")) is None
+            for r in pcl_records
+        ):
+            merged["keyboard_unverified_sources"] = ["PConline"]
     source_urls: dict[str, str] = {}
     source_ranks: dict[str, int] = {}
     evidence: dict[str, Any] = {}

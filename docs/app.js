@@ -88,8 +88,12 @@
 
   function sourceBadges(item) {
     const sources = Array.isArray(item.atomic_source_names) ? item.atomic_source_names : [];
+    const unverified = Array.isArray(item.keyboard_unverified_sources) ? item.keyboard_unverified_sources : [];
     return `<div class="source-badges ${sources.length > 1 ? "multi" : ""}">${
-      sources.map((source) => `<span class="source-badge">${escapeHtml(source)}</span>`).join("")
+      sources.map((source) => {
+        const label = unverified.includes(source) ? `${source}(未验证键盘)` : source;
+        return `<span class="source-badge">${escapeHtml(label)}</span>`;
+      }).join("")
     }</div>`;
   }
 
