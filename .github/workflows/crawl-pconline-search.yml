@@ -1,0 +1,58 @@
+name: Crawl PConline Search
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 03:30 Asia/Shanghai daily (before morning crawl)
+    - cron: "30 19 * * *"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: pconline-search-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -q -r requirements.txt
+
+      - name: Configure required crawler proxy
+        run: python scripts/setup_proxy_runtime.py
+
+      - name: Download ZOL raw for search terms
+        run: |
+          python scripts/download_latest_crawler_artifact.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow crawl-zol.yml \
+            --artifact-prefix zol-data- \
+            --output data/raw/zol/latest.json \
+            --min-records 50
+
+      - name: Crawl PConline search supplements
+        run: |
+          python scripts/crawl_pconline_search.py \
+            --zol-input data/raw/zol/latest.json \
+            --output data/raw/pconline/search.json \
+            --max-searches 200 \
+            --delay 0.3
+
+      - name: Upload search data
+        uses: actions/upload-artifact@main
+        with:
+          name: pconline-search-data-${{ github.run_id }}
+          path: data/raw/pconline/search.json
+          retention-days: 30
+          if-no-files-found: error

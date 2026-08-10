@@ -83,7 +83,18 @@ jobs:
             --min-records 1 \
             2> >(tee "$RUNNER_TEMP/pconline-catalog-artifact.err" >&2)
           catalog_status=$?
+          # PConline 搜索补充（ZOL 系列名搜索）：下载并合并
+          python scripts/download_latest_crawler_artifact.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow crawl-pconline-search.yml \
+            --artifact-prefix pconline-search-data- \
+            --output data/raw/pconline/search.json \
+            --min-records 1 \
+            2> >(tee "$RUNNER_TEMP/pconline-search-artifact.err" >&2)
+          search_status=$?
           if [ "$catalog_status" -eq 0 ] && [ -s data/raw/pconline/catalog.json ]; then
+            python scripts/merge_pconline_catalog.py
+          elif [ "$search_status" -eq 0 ] && [ -s data/raw/pconline/search.json ]; then
             python scripts/merge_pconline_catalog.py
           fi
           # 机械师（准系统游戏本）第 4 源：非阻断下载
