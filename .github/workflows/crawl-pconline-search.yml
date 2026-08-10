@@ -50,8 +50,8 @@ jobs:
           python scripts/crawl_pconline_search.py \
             --zol-input data/raw/zol/latest.json \
             --output data/raw/pconline/search.json \
-            --max-searches 200 \
-            --delay 0.3
+            --max-searches 600 \
+            --delay 0.2
 
       - name: Upload search data
         uses: actions/upload-artifact@main

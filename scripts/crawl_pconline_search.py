@@ -145,28 +145,39 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--zol-input", required=True, help="ZOL raw JSON")
     parser.add_argument("--output", default="data/raw/pconline/search.json")
-    parser.add_argument("--max-searches", type=int, default=200)
+    parser.add_argument("--max-searches", type=int, default=600)
     parser.add_argument("--delay", type=float, default=0.5)
     args = parser.parse_args()
 
     zol = json.loads(Path(args.zol_input).read_text(encoding="utf-8"))
     zol_items = zol.get("items", zol) if isinstance(zol, dict) else zol
 
-    # 提取系列名（品牌 + 型号，空格分隔）
+    # 提取系列名（品牌 + 型号，空格分隔）——双模式：
+    # 1) 中文品牌 + 英文型号（联想拯救者 Y7000P / 华硕天选6 Pro）
+    # 2) 英文品牌 + 英文型号（ThinkPad T14p / HUAWEI MateBook）
     queries: list[str] = []
     seen: set[str] = set()
+    en_brands = ("ThinkPad", "ThinkBook", "HUAWEI", "ROG", "Redmi", "Acer", "Alienware", "LG", "Xiaomi", "VAIO", "MacBook", "HP", "ASUS", "DELL")
     for r in zol_items:
         title = str(r.get("title", ""))
-        # 提取"品牌 + 英文型号"模式（如 拯救者 Y7000P / ThinkBook 16+）
-        m = re.search(
+        q = None
+        m = re.match(
             r"([\u4e00-\u9fff]{2,6})\s*([A-Za-z][A-Za-z0-9]*(?:\s*\+)?\s*[- ]?\d{0,4}[A-Za-z0-9]*)",
             title,
         )
         if m:
             q = f"{m.group(1)} {m.group(2)}".strip()
-            if len(q) >= 4 and q not in seen:
-                seen.add(q)
-                queries.append(q)
+        else:
+            for b in en_brands:
+                if title.startswith(b):
+                    rest = title[len(b):].strip()
+                    rm = re.match(r"([A-Za-z0-9]+(?:\s*\+)?\s*[- ]?\d{0,4}[A-Za-z0-9]*)", rest)
+                    if rm:
+                        q = f"{b} {rm.group(1)}".strip()
+                    break
+        if q and len(q) >= 4 and q not in seen:
+            seen.add(q)
+            queries.append(q)
         if len(queries) >= args.max_searches:
             break
 
