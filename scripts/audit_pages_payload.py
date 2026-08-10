@@ -38,8 +38,24 @@ def audit_payload(
     keys = [item.get("identity_key") for item in items]
     if any(not key for key in keys):
         errors.append("every item must have identity_key")
-    if len(keys) != len(set(keys)):
-        errors.append("duplicate identity_key values")
+    # 允许同 identity 多 SKU 行（集显版/独显版等不同配置拆分展示）；
+    # 但同 identity 行必须配置可区分（GPU/内存/存储不同），否则是重复噪音
+    from collections import Counter
+    key_counts = Counter(keys)
+    for key, count in key_counts.items():
+        if count <= 1:
+            continue
+        dup_items = [item for item in items if item.get("identity_key") == key]
+        sigs = {
+            (
+                str(item.get("gpu") or ""),
+                item.get("memory_gb"),
+                item.get("storage_gb"),
+            )
+            for item in dup_items
+        }
+        if len(sigs) < len(dup_items):
+            errors.append(f"duplicate identity_key {key} with identical config")
     for item in items:
         allowed, reasons = meets_publish_requirements(item)
         if not allowed:

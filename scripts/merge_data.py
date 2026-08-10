@@ -740,8 +740,19 @@ def merge_records(
 
     accepted: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
+    seen_final: set[str] = set()
     for group in final_groups:
         merged = merge_group(group)
+        # 去重：同 identity+同配置签名（GPU/内存/存储）只保留一条
+        sig = (
+            str(merged.get("identity_key", ""))
+            + "|" + str(merged.get("gpu") or "")
+            + "|" + str(merged.get("memory_gb") or "")
+            + "|" + str(merged.get("storage_gb") or "")
+        )
+        if sig in seen_final:
+            continue
+        seen_final.add(sig)
         allowed, reasons = meets_publish_requirements(merged)
         if allowed or not publish_only:
             merged["publish_eligible"] = allowed

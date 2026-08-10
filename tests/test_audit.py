@@ -40,7 +40,7 @@ def test_ineligible_item_and_duplicate_identity_are_rejected():
     second = item()
     second["keyboard_backlight"] = False
     errors = audit_payload(payload([first, second], ["ZOL"]))
-    assert "duplicate identity_key values" in errors
+    assert "duplicate identity_key abc with identical config" in errors
     assert any(error.startswith("ineligible item") for error in errors)
 
 
