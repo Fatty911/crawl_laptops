@@ -544,6 +544,17 @@ def meets_publish_requirements(record: dict[str, Any]) -> tuple[bool, list[str]]
         reasons.append("numeric_keypad_not_confirmed")
     if _coerce_bool(record.get("keyboard_backlight")) is not True:
         reasons.append("keyboard_backlight_not_confirmed")
+    # 小屏数字键盘存疑规则：≤15.5 寸 + 数字键盘 = 可疑组合（14寸空间难有独立数字键盘）。
+    # 用户铁律：必须找品牌官网解析验证（official_verified=True）才发布——多源交叉也豁免不了；
+    # 未验证的此类条目一律拒绝（供监控/异步官网验证回填）
+    _scr = record.get("screen_size")
+    if (
+        _scr is not None
+        and float(_scr) <= 15.5
+        and _coerce_bool(record.get("numeric_keypad")) is True
+        and not record.get("official_verified")
+    ):
+        reasons.append("small_screen_numpad_needs_official_verification")
     voltage = _record_cpu_voltage(record)
     if voltage == "desktop_performance":
         if not _desktop_cpu_has_portable_product_form(record):

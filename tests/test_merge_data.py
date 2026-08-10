@@ -23,6 +23,34 @@ def laptop(source, *, price, title="联想 ThinkBook 16+ 2025", model="ThinkBook
     }
 
 
+def test_small_screen_numpad_needs_official_verification():
+    """≤15.5寸+数字键盘：未官网验证必须拒绝（14寸数字键盘存疑）。"""
+    from scripts.merge_data import meets_publish_requirements
+
+    small = {
+        "title": "Redmi Book 14 2024",
+        "screen_size": 14.0,
+        "numeric_keypad": True,
+        "keyboard_backlight": True,
+        "cpu_voltage_type": "standard_performance",
+        "source": "ZOL",
+        "atomic_source_names": ["ZOL"],
+        "source_count": 1,
+    }
+    allowed, reasons = meets_publish_requirements(small)
+    assert not allowed
+    assert "small_screen_numpad_needs_official_verification" in reasons
+
+    small["official_verified"] = True
+    allowed, _ = meets_publish_requirements(small)
+    assert allowed
+
+    big = dict(small, screen_size=16.0)
+    big.pop("official_verified", None)
+    allowed, _ = meets_publish_requirements(big)
+    assert allowed
+
+
 def test_identity_key_ignores_memory_storage_and_gpu_configuration_noise():
     first = laptop(
         "ZOL",
