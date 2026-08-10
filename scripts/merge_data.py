@@ -698,7 +698,7 @@ def merge_records(
             final_groups.extend(bucket)
             continue
         # 桶内多组：家族级子桶（无具体型号）与同家族的具体型号子桶合并；
-        # 不同具体型号之间（8940HX vs 8945HX）绝不合并（防误并）
+        # 不同具体型号之间（8940HX vs 8945HX）绝不合并（防误并 PConline 独有机型）
         exact_buckets: dict[str, list[dict[str, Any]]] = {}
         for group in bucket:
             merged = merge_group(group)
@@ -706,7 +706,6 @@ def merge_records(
             exact_key = cpu if re.search(r"\d{3,5}", cpu) else "family"
             exact_buckets.setdefault(exact_key, []).append(group)
         family_sub = exact_buckets.pop("family", [])
-        # 家族级记录先与各具体型号子桶尝试合并（配置兼容时）
         for exact_key, sub in exact_buckets.items():
             merged_bucket: list[dict[str, Any]] = []
             for group in sub:
@@ -721,6 +720,10 @@ def merge_records(
                     final_groups.append([fm])
             final_groups.append(merged_bucket if merged_bucket else [])
         # 剩余的家族级子桶（无具体型号子桶可合并时）
+        for fg in family_sub:
+            final_groups.append([merge_group(fg)])
+
+        # 剩余的家族级子桶
         for fg in family_sub:
             final_groups.append([merge_group(fg)])
 
