@@ -673,7 +673,7 @@ def merge_group(records: list[dict[str, Any]]) -> dict[str, Any]:
     _cpu_v2 = str(merged.get("cpu") or "")
     if re.match(r"^\d{4,5}[A-Za-z]*$", _cpu_v2.strip()):
         _title2 = str(merged.get("title") or "")
-        _fm2 = re.search(r"\b(R[579]|i[3579]|U[3579]|Ultra\s?[579])\b", _title2)
+        _fm2 = re.search(r"(?<![A-Za-z0-9])(R[579]|i[3579]|U[3579]|Ultra\s?[579])(?![A-Za-z0-9])", _title2)
         if _fm2:
             _fam2 = _fm2.group(1).replace(" ", "")
             merged["cpu"] = f"{_fam2}-{_cpu_v2.strip()}"
