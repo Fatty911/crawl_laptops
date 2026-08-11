@@ -4,12 +4,16 @@ name: Process ZOL raw data
 # 处理逻辑变更（如 CPU 提取规则）时只需重跑本 workflow，无需重新爬取。
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Crawl ZOL"]
+    types: [completed]
   schedule:
     # 每天 06:11 UTC = 14:11 Asia/Shanghai（ZOL 下午爬虫完成后自动重处理）
     - cron: "11 6 * * *"
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: zol-process
@@ -19,6 +23,7 @@ jobs:
   process:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Checkout
         uses: actions/checkout@main
@@ -32,20 +37,31 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
-      - name: Download latest raw artifact
-        id: download
-        uses: actions/download-artifact@main
-        with:
-          name: zol-raw-*
-          path: raw
-          merge-multiple: true
+      - name: Download latest raw artifact from Crawl ZOL
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTION_PAT || github.token }}
+        run: |
+          # actions/download-artifact 只能读取当前 workflow run；这里必须通过 GitHub API
+          # 选择 Crawl ZOL 产生的最新 zol-raw-* artifact，并完整解压 HTML + 列表 JSON。
+          python scripts/download_latest_artifact.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow crawl-zol.yml \
+            --artifact-prefix zol-raw- \
+            --extract-dir raw \
+            --min-files 10
 
       - name: Process raw HTML
         run: |
-          ls -la raw/
+          RAW_DIR="$(find raw -type d -name raw_html -print -quit)"
+          ITEMS_FILE="$(find raw -type f -path '*/raw/zol/latest.json' -print -quit)"
+          if [ -z "$ITEMS_FILE" ]; then ITEMS_FILE="$(find raw -type f -name latest.json -print -quit)"; fi
+          test -n "$RAW_DIR" || { echo "找不到 raw_html 目录" >&2; exit 2; }
+          test -n "$ITEMS_FILE" || { echo "找不到 ZOL latest.json" >&2; exit 2; }
+          echo "RAW_DIR=$RAW_DIR"
+          echo "ITEMS_FILE=$ITEMS_FILE"
           python scripts/process_zol.py \
-            --raw-dir raw/raw_html \
-            --items raw/latest.json \
+            --raw-dir "$RAW_DIR" \
+            --items "$ITEMS_FILE" \
             --output data/processed/zol/latest.json
           python - <<'EOF'
           import json

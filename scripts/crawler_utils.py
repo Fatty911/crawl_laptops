@@ -71,7 +71,12 @@ def get_html(
         response.encoding = encoding
     elif response.encoding and response.encoding.lower() == "iso-8859-1":
         response.encoding = response.apparent_encoding
-    return BeautifulSoup(response.text, "html.parser"), response.url
+    soup = BeautifulSoup(response.text, "html.parser")
+    # Keep the exact response bytes available to crawlers that persist raw input.
+    # Existing callers still receive the same BeautifulSoup object and URL tuple.
+    soup._raw_response_content = response.content
+    soup._raw_response_encoding = response.encoding
+    return soup, response.url
 
 
 def clean_text(value: Any) -> str:

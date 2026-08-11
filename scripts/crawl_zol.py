@@ -93,6 +93,19 @@ RANKING_URL = (
 RANKING_REFERER = f"{BASE_URL}/notebook/"
 
 
+def save_raw_response(detail: Any, path: Path) -> bool:
+    """Persist exact response bytes; fall back to serialized HTML for old callers."""
+    try:
+        raw = getattr(detail, "_raw_response_content", None)
+        if not isinstance(raw, (bytes, bytearray)):
+            raw = str(detail).encode("utf-8", errors="replace")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(bytes(raw))
+        return True
+    except Exception:
+        return False
+
+
 def parse_specs(html: Any) -> dict[str, str]:
     specs: dict[str, str] = {}
     for row in html.select("tr"):
@@ -212,15 +225,8 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
         return item
 
     # 原始 HTML 持久化：处理逻辑变更时只需重新 process，无需重爬
-    try:
-        import os
         raw_dir = Path(os.environ.get("RAW_HTML_DIR", "data/raw_html"))
-        raw_dir.mkdir(parents=True, exist_ok=True)
-        _html_str = str(detail) if not isinstance(detail, str) else detail
-        (raw_dir / f"{product_id}.html").write_bytes(_html_str.encode("utf-8", errors="replace"))
-        item["raw_html_saved"] = True
-    except Exception:
-        item["raw_html_saved"] = False
+        item["raw_html_saved"] = save_raw_response(detail, raw_dir / f"{product_id}.html")
 
     specs = parse_specs(detail)
     cpu_raw = text_from_spec(specs, "CPU型号", "处理器型号") or item["title"]
@@ -321,6 +327,9 @@ def crawl(pages: int, max_items: int, delay: float) -> list[dict[str, Any]]:
             RANKING_URL.format(page=page),
             encoding="gb18030",
             delay=delay,
+        )
+        save_raw_response(
+            html, Path(os.environ.get("RAW_HTML_DIR", "data/raw_html")) / "ranking" / f"page-{page}.html"
         )
         page_items = parse_ranking_page(html, page)
         if not page_items:
@@ -428,6 +437,9 @@ def crawl_incremental(
                     file=sys.stderr,
                 )
                 break
+            save_raw_response(
+                html, Path(os.environ.get("RAW_HTML_DIR", "data/raw_html")) / "ranking" / f"page-{page}.html"
+            )
             page_items = parse_ranking_page(html, page)
             # Carry the list page as Referer for the next deep request.
             session.headers["Referer"] = final_url
