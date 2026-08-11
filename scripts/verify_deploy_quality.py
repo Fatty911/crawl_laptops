@@ -53,9 +53,14 @@ def check_coverage(items: list[dict]) -> list[str]:
 def check_js_parse(items: list[dict]) -> list[str]:
     """JS 解析抽查：重抓 3 条详情页规格表，对比 Pages 数据。"""
     errors = []
-    mk = [r for r in items if "Machinike" in str(r.get("source", "")) and r.get("source_url")]
+    mk = [
+        r for r in items
+        if "Machinike" in str(r.get("source", ""))
+        and r.get("source_url")
+        and "machenike.com" in str(r.get("source_url", ""))
+    ]
     if not mk:
-        return ["无 Machinike 数据可抽查"]
+        return ["无机械师官网记录可抽查"]
     session = make_session()
     sample = random.sample(mk, min(3, len(mk)))
     for r in sample:
