@@ -401,6 +401,16 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
                                 record["gpu"] = _gm2.group(1).replace(" ", "")
                                 record["gpu_type"] = "dedicated"
                                 record["dedicated_gpu"] = True
+                        # 老机型规格表无 CPU型号键：从 meta content 描述提取（如 "i7-8750H处理器"）
+                        if not re.search(r"\d{3,5}", _cur_cpu):
+                            _mdesc2 = re.search(r'<meta content="([^"]{100,})"', detail_html)
+                            if _mdesc2:
+                                _dcpu = re.search(r"(?:i[3579]|锐龙|R[579]|Ultra\s?[579])\s?-?\s*\d{4,5}[A-Za-z0-9]*", _mdesc2.group(1))
+                                if _dcpu:
+                                    record["cpu"] = _dcpu.group(0).replace(" ", "")
+                                    cb, cf = parse_cpu_fields(record["cpu"])
+                                    record["cpu_brand"] = cb
+                                    record["cpu_family"] = cf
             except Exception:
                 pass
             # 描述文本提取：散热（双液金/双风扇等）
