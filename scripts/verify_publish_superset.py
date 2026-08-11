@@ -40,10 +40,27 @@ def main() -> int:
     candidate = json.loads(Path(args.candidate).read_text(encoding="utf-8"))
     missing = identities(baseline, eligible_only=True) - identities(candidate)
     if missing:
-        print(f"publish shrink detected: {len(missing)} identities missing", file=sys.stderr)
-        for key in sorted(missing)[:20]:
-            print(f"  {key}", file=sys.stderr)
-        return 2
+        # 豁免：同 source_url 被候选新记录覆盖的旧记录（数据升级——如机械师空壳→完整规格，
+        # identity 因 CPU/屏幕字段变化而不同，但产品仍在）不算回归
+        candidate_urls = {
+            str(item.get("source_url") or item.get("source_product_id") or "")
+            for item in candidate.get("items", [])
+        }
+        covered = set()
+        for item in baseline.get("items", []):
+            url = str(item.get("source_url") or item.get("source_product_id") or "")
+            if url and url in candidate_urls:
+                key = build_identity_key(item)
+                if key in missing:
+                    covered.add(key)
+        real_missing = missing - covered
+        if covered:
+            print(f"superset: {len(covered)} identities covered by same-source_url upgrade (not regression)", file=sys.stderr)
+        if real_missing:
+            print(f"publish shrink detected: {len(real_missing)} identities missing", file=sys.stderr)
+            for key in sorted(real_missing)[:20]:
+                print(f"  {key}", file=sys.stderr)
+            return 2
     print(f"superset verified: {len(identities(baseline, eligible_only=True))} baseline identities retained")
     return 0
 
