@@ -443,9 +443,9 @@ def canonical_cpu_identity(record: dict[str, Any]) -> str:
 def extract_cpu_model(text: Any) -> str:
     value = unicodedata.normalize("NFKC", str(text or "")).strip()
     patterns = (
-        r"\b(?:i[3579]|Ultra\s*[3579])[-\s]?\d{3,5}(?:HX|HS|HK|H|UL|UP|U|Y|G[147])\b",
-        r"\b(?:Ryzen|锐龙)\s*[3579]?\s*\d{4,5}(?:HX|HS|HK|H|UL|UP|U|Y)\b",
-                r"\bR[579]\s*-\s*\d{4,5}(?:HX|HS|HK|H|UL|UP|U|Y)\b",
+        r"(?<![A-Za-z0-9])(?:i[3579]|Ultra\s*[3579])[-\s]?\d{3,5}(?:HX|HS|HK|H|UL|UP|U|Y|G[147])(?![A-Za-z0-9])",
+        r"(?<![A-Za-z0-9])(?:Ryzen|锐龙)\s*[3579]?\s*\d{4,5}(?:HX|HS|HK|H|UL|UP|U|Y)(?![A-Za-z0-9])",
+                r"(?<![A-Za-z0-9])R[579]\s*-\s*\d{4,5}(?:HX|HS|HK|H|UL|UP|U|Y)(?![A-Za-z0-9])",
         r"\b\d{4,5}(?:HX|HS|HK|H|UL|UP|U|Y)\b",
         r"(?<![A-Za-z0-9])i[3579][-\s]?\d{4,5}(?:KS|KF|K|F)\b",
         r"\b(?:Ryzen|锐龙|R)\s*[3579]?\s*[- ]?\d{4,5}(?:X3D|XT|X|G)\b",
@@ -668,6 +668,15 @@ def merge_group(records: list[dict[str, Any]]) -> dict[str, Any]:
     merged["evidence"] = evidence
     merged["brand"] = normalize_brand(merged.get("brand"), str(merged.get("title", "")))
     merged["cpu"] = extract_cpu_model(merged.get("cpu"))
+    # CPU 家族前缀补全（全局）：纯数字 CPU（12450H/9850HX）时从标题家族词补前缀
+    # （i5-12450H / R9-9850HX）——用户要求 CPU 必须带 i/R/U 家族
+    _cpu_v2 = str(merged.get("cpu") or "")
+    if re.match(r"^\d{4,5}[A-Za-z]*$", _cpu_v2.strip()):
+        _title2 = str(merged.get("title") or "")
+        _fm2 = re.search(r"\b(R[579]|i[3579]|U[3579]|Ultra\s?[579])\b", _title2)
+        if _fm2:
+            _fam2 = _fm2.group(1).replace(" ", "")
+            merged["cpu"] = f"{_fam2}-{_cpu_v2.strip()}"
     merged["cpu_voltage_type"] = _record_cpu_voltage(merged)
     merged["identity_key"] = build_identity_key(merged)
     merged = apply_keyboard_facts(merged)

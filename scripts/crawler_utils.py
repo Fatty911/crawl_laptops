@@ -75,7 +75,10 @@ def get_html(
 
 
 def clean_text(value: Any) -> str:
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", str(value or ""))).strip()
+    text = re.sub(r"\s+", " ", unicodedata.normalize("NFKC", str(value or ""))).strip()
+    # ZOL 参数值残留的 ">"（如 "全尺寸键盘> ,背光键盘" / "120Hz>"）
+    text = text.replace(">", "").strip()
+    return text
 
 
 def parse_price(value: Any) -> float | None:
