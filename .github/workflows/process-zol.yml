@@ -1,0 +1,66 @@
+name: Process ZOL raw data
+
+# 处理与爬虫分离：从最新 raw artifact（原始 HTML + 列表记录）重新提取字段。
+# 处理逻辑变更（如 CPU 提取规则）时只需重跑本 workflow，无需重新爬取。
+on:
+  workflow_dispatch:
+  schedule:
+    # 每天 06:11 UTC = 14:11 Asia/Shanghai（ZOL 下午爬虫完成后自动重处理）
+    - cron: "11 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zol-process
+  cancel-in-progress: true
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Set up Python
+        uses: actions/setup-python@main
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Download latest raw artifact
+        id: download
+        uses: actions/download-artifact@main
+        with:
+          name: zol-raw-*
+          path: raw
+          merge-multiple: true
+
+      - name: Process raw HTML
+        run: |
+          ls -la raw/
+          python scripts/process_zol.py \
+            --raw-dir raw/raw_html \
+            --items raw/latest.json \
+            --output data/processed/zol/latest.json
+          python - <<'EOF'
+          import json
+          d = json.load(open("data/processed/zol/latest.json", encoding="utf-8"))
+          items = d.get("items", [])
+          ok = sum(1 for i in items if i.get("processed_from_raw"))
+          print(f"总记录: {len(items)} | 从raw重新处理: {ok}")
+          if ok < 10:
+              raise SystemExit(f"raw 处理不足 10 条（{ok}），疑似 artifact 异常")
+          EOF
+
+      - name: Upload processed data
+        uses: actions/upload-artifact@main
+        with:
+          name: zol-processed-${{ github.run_id }}
+          path: data/processed/zol/latest.json
+          if-no-files-found: error
+          retention-days: 30

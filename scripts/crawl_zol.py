@@ -211,6 +211,17 @@ def enrich_item(session: Any, item: dict[str, Any], delay: float) -> dict[str, A
         item["crawl_warning"] = f"detail_failed:{type(exc).__name__}"
         return item
 
+    # 原始 HTML 持久化：处理逻辑变更时只需重新 process，无需重爬
+    try:
+        import os
+        raw_dir = Path(os.environ.get("RAW_HTML_DIR", "data/raw_html"))
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        _html_str = str(detail) if not isinstance(detail, str) else detail
+        (raw_dir / f"{product_id}.html").write_bytes(_html_str.encode("utf-8", errors="replace"))
+        item["raw_html_saved"] = True
+    except Exception:
+        item["raw_html_saved"] = False
+
     specs = parse_specs(detail)
     cpu_raw = text_from_spec(specs, "CPU型号", "处理器型号") or item["title"]
     cpu = extract_cpu_model(cpu_raw)

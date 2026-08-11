@@ -190,3 +190,14 @@ jobs:
           path: data/raw/zol/latest.json
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload raw HTML (for reprocessing without re-crawl)
+        if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
+        uses: actions/upload-artifact@main
+        with:
+          name: zol-raw-${{ steps.date.outputs.date }}
+          path: |
+            data/raw_html/
+            data/raw/zol/latest.json
+          if-no-files-found: warn
+          retention-days: 30

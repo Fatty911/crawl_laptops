@@ -50,7 +50,15 @@ jobs:
           mkdir -p data/raw/zol data/raw/jd data/raw/pconline data/raw/machenike
           echo "skip=false" >> "$GITHUB_OUTPUT"
           set +e
+          # ZOL：优先用 process-zol 重新处理产物（处理逻辑独立可重跑）；
+          # 回退爬虫即时产物（旧数据，等待 process 补齐）
           python scripts/download_latest_crawler_artifact.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow process-zol.yml \
+            --artifact-prefix zol-processed- \
+            --output data/raw/zol/latest.json \
+            --min-records 50 \
+            2>/dev/null || python scripts/download_latest_crawler_artifact.py \
             --repo "$GITHUB_REPOSITORY" \
             --workflow crawl-zol.yml \
             --artifact-prefix zol-data- \
