@@ -15,7 +15,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'docs/**'
+      # 前端展示改动走独立 workflow deploy-frontend.yml，不再占用数据部署链。
       - '.github/workflows/deploy-pages.yml'
   release:
     types: [published]
