@@ -326,7 +326,32 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rg
 
 .status { padding: 42px; text-align: center; color: var(--muted); }
 .status[hidden] { display: none; }
-.table-shell { overflow-x: auto; }
+.table-shell {
+  overflow-x: auto;
+  /* 默认隐藏滚动条 */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+.table-shell::-webkit-scrollbar {
+  height: 0; /* 默认隐藏 */
+}
+/* 鼠标悬停在表格范围时浮现横向滚动条 */
+.table-shell:hover {
+  scrollbar-width: thin; /* Firefox */
+}
+.table-shell:hover::-webkit-scrollbar {
+  height: 10px;
+}
+.table-shell:hover::-webkit-scrollbar-track {
+  background: transparent;
+}
+.table-shell:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 5px;
+}
+.table-shell:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.35);
+}
 table { width: 100%; border-collapse: collapse; min-width: 890px; }
 
 th {

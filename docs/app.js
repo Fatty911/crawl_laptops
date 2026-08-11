@@ -44,10 +44,12 @@
 
   const fieldTemplates = {
     cpu_brand: () => selectField("cpuBrand", "处理器品牌", [["", "全部"], ["Intel", "Intel"], ["AMD", "AMD"]]),
+    cpu_model: () => selectField("cpuModel", "CPU型号", [["", "全部"]]),
     cpu_family: () => "",
     cpu_voltage_type: () => "",
     gpu_type: () => selectField("gpuType", "显卡类型", [["", "全部"], ["integrated", "集成显卡"], ["dedicated", "独立显卡"]]),
     gpu: () => checkField("hideDedicated", "默认隐藏独立显卡", true),
+    gpu_model: () => selectField("gpuModel", "显卡型号", [["", "全部"]]),
     screen_size: () => numberField("screenMin", "最小屏幕尺寸", "英寸", 0.1),
     resolution: () => "",
     refresh_rate: () => numberField("refreshMin", "最低刷新率", "Hz", 1),
@@ -256,6 +258,8 @@
       if (f.hideDedicated && item.dedicated_gpu === true) return false;
       if (f.cpuBrand && item.cpu_brand !== f.cpuBrand) return false;
       if (f.gpuType && item.gpu_type !== f.gpuType) return false;
+      if (f.cpuModel && item.cpu !== f.cpuModel) return false;
+      if (f.gpuModel && item.gpu !== f.gpuModel) return false;
       if (f.brand && item.brand !== f.brand) return false;
       if (!passesNumber(item.screen_size, f.screenMin)) return false;
       if (!passesNumber(item.refresh_rate, f.refreshMin)) return false;
@@ -489,6 +493,17 @@
       const payload = await dataResponse.json();
       state.config = await configResponse.json();
       state.items = Array.isArray(payload.items) ? payload.items : [];
+      // 填充 CPU/显卡型号筛选动态选项（去重排序）
+      const cpuModels = [...new Set(state.items.map((i) => i.cpu).filter(Boolean))].sort();
+      const gpuModels = [...new Set(state.items.map((i) => i.gpu).filter(Boolean))].sort();
+      const fillSelect = (key, values) => {
+        const sel = document.querySelector(`select[data-filter="${key}"]`);
+        if (!sel) return;
+        sel.innerHTML = `<option value="">全部</option>` + values
+          .map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+      };
+      fillSelect("cpuModel", cpuModels);
+      fillSelect("gpuModel", gpuModels);
       state.filters.hideDedicated = state.config?.defaults?.hide_dedicated_gpu !== false;
       $("#total-count").textContent = state.items.length;
       $("#multi-count").textContent = state.items.filter((item) => Number(item.source_count) >= 2).length;

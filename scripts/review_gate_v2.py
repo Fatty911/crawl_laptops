@@ -84,7 +84,7 @@ def main() -> int:
                 print("REVIEW:", content.strip()[:200])
                 if content.strip().startswith("结论: PASS"):
                     review_text = content.strip() + "\n"
-                elif re.search(r"(?:结论|审查结论|review\s*[:：]?)\s*[:：]?\s*\*{0,2}\s*PASS", content, re.I):
+                elif re.search(r"结论[^\n]{0,20}?PASS|PASS[^\n]{0,20}?结论", content, re.I):
                     # PASS 变体（"结论：PASS / 同意合入"等）：归一化为标准格式
                     print("PASS 变体识别，归一化格式")
                     review_text = f"结论: PASS\nDIFF_SHA256: {cand}\n" + content.strip()[:300] + "\n"

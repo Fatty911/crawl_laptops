@@ -293,6 +293,13 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
             if max_items and len(items) >= max_items:
                 break
             title = card["title"]
+            # 标题清理：去营销描述词，只留型号（如 "机械师F117-X 重磅游戏本新品" → "机械师F117-X"）
+            _clean = title
+            _clean = re.sub(r"【[^】]*】", "", _clean)  # 【新】【NEW】【金属版】等
+            _clean = re.sub(r"(重磅|新品|全新|金属版|电竞|游戏本|笔记本|轻薄|旗舰|高端|专业|升级|特价|高配|顶配|爆款|热销)", "", _clean)
+            _clean = re.sub(r"\s{2,}", " ", _clean).strip()
+            if _clean and len(_clean) >= 4:
+                title = _clean
             if not is_notebook(title):
                 continue  # 剔除台式机/外设/配件/电脑包（机械师列表混入大量非笔记本）
             if card.get("price") is not None and not is_plausible_price(card.get("price")):
@@ -498,6 +505,19 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
                 else:
                     record["dedicated_gpu"] = True
                     record["gpu_type"] = "dedicated"
+            # CPU 家族前缀补全：CPU 字段纯数字（如 7945HX）时，从标题家族词补前缀
+            # （R9-7945HX / i7-13620H / U7-275HX）——用户要求必须带家族
+            _cpu_v = str(record.get("cpu") or "")
+            if re.match(r"^\d{4,5}[A-Za-z]*$", _cpu_v.strip()):
+                _fam = ""
+                _fm = re.search(r"\b(R[579]|i[3579]|U[3579]|Ultra\s?[579])\b", title)
+                if _fm:
+                    _fam = _fm.group(1).replace(" ", "")
+                if _fam:
+                    record["cpu"] = f"{_fam}-{_cpu_v.strip()}"
+                    cb, cf = parse_cpu_fields(record["cpu"])
+                    record["cpu_brand"] = cb
+                    record["cpu_family"] = cf
             items.append(record)
 
     if not items:
