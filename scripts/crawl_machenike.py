@@ -505,15 +505,14 @@ def crawl(session: Any, output: str, max_items: int, delay: float) -> int:
                 else:
                     record["dedicated_gpu"] = True
                     record["gpu_type"] = "dedicated"
-            # CPU 家族前缀补全：CPU 字段纯数字（如 7945HX）时，从标题家族词补前缀
-            # （R9-7945HX / i7-13620H / U7-275HX）——用户要求必须带家族
+
+            # CPU 家族前缀补全（独立）：CPU 字段纯数字（如 7435H）时，从标题家族词补前缀
+            # （R7-7435H / i9-13620H / U7-275HX）——用户要求必须带家族
             _cpu_v = str(record.get("cpu") or "")
             if re.match(r"^\d{4,5}[A-Za-z]*$", _cpu_v.strip()):
-                _fam = ""
-                _fm = re.search(r"\b(R[579]|i[3579]|U[3579]|Ultra\s?[579])\b", title)
+                _fm = re.search(r"\b(R[579]|i[3579]|U[3579]|Ultra\s?[579])\b", str(record.get("title") or ""))
                 if _fm:
                     _fam = _fm.group(1).replace(" ", "")
-                if _fam:
                     record["cpu"] = f"{_fam}-{_cpu_v.strip()}"
                     cb, cf = parse_cpu_fields(record["cpu"])
                     record["cpu_brand"] = cb
