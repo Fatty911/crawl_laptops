@@ -445,6 +445,7 @@ def extract_cpu_model(text: Any) -> str:
     patterns = (
         r"\b(?:i[3579]|Ultra\s*[3579])[-\s]?\d{3,5}(?:HX|HS|HK|H|UL|UP|U|Y|G[147])\b",
         r"\b(?:Ryzen|锐龙)\s*[3579]?\s*\d{4,5}(?:HX|HS|HK|H|UL|UP|U|Y)\b",
+                r"\bR[579]\s*-\s*\d{4,5}(?:HX|HS|HK|H|UL|UP|U|Y)\b",
         r"\b\d{4,5}(?:HX|HS|HK|H|UL|UP|U|Y)\b",
         r"(?<![A-Za-z0-9])i[3579][-\s]?\d{4,5}(?:KS|KF|K|F)\b",
         r"\b(?:Ryzen|锐龙|R)\s*[3579]?\s*[- ]?\d{4,5}(?:X3D|XT|X|G)\b",
@@ -606,6 +607,13 @@ def merge_group(records: list[dict[str, Any]]) -> dict[str, Any]:
     for record in ordered[1:]:
         for key, value in record.items():
             if key not in protected and _quality(value) > _quality(merged.get(key)):
+                # CPU 家族前缀优先：R9-9850HX 比 9850HX 信息更完整；
+                # 两边前缀状态相同或新值无前缀时不覆盖
+                if key == "cpu" and isinstance(value, str) and isinstance(merged.get("cpu"), str):
+                    _has_pref = bool(re.match(r"^[A-Za-z]+[- ]\d", str(value)))
+                    _cur_pref = bool(re.match(r"^[A-Za-z]+[- ]\d", str(merged.get("cpu") or "")))
+                    if _has_pref == _cur_pref or not _has_pref:
+                        continue
                 merged[key] = deepcopy(value)
 
     sources = sorted({source for record in records for source in atomic_sources(record)})
