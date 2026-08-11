@@ -17,7 +17,18 @@ except ModuleNotFoundError:
 def preserve(candidate: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str, Any]:
     candidate_items = candidate.get("items", [])
     baseline_items = (baseline or {}).get("items", [])
-    eligible_baseline = [item for item in baseline_items if meets_publish_requirements(item)[0]]
+    # 新候选已覆盖同 source_url 的产品时，旧基线记录不保留
+    # （同产品新旧字段差异会导致 identity 不同而并存——如机械师旧空壳 + 新规格）
+    candidate_urls = {
+        str(item.get("source_url") or item.get("source_product_id") or "")
+        for item in candidate_items
+        if item.get("source_url") or item.get("source_product_id")
+    }
+    eligible_baseline = [
+        item for item in baseline_items
+        if meets_publish_requirements(item)[0]
+        and str(item.get("source_url") or item.get("source_product_id") or "") not in candidate_urls
+    ]
     merged, rejected = merge_records([*candidate_items, *eligible_baseline])
     payload = build_payload(merged, rejected)
     payload["pipeline"]["candidate_count"] = len(candidate_items)

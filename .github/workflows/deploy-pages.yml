@@ -113,6 +113,14 @@ jobs:
               time.sleep(15)
           PY
 
+      - name: Verify deployed data quality (JS parse / coverage)
+        env:
+          PAGES_BASE: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          # 部署后验证：CPU/屏幕覆盖率达标 + JS 解析抽查一致——不达标即失败
+          python scripts/verify_deploy_quality.py \
+            --pages-url "${PAGES_BASE}data/latest.json"
+
   audit:
     name: Single-source audit
     needs: deploy
