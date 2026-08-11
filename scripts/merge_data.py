@@ -544,6 +544,12 @@ def meets_publish_requirements(record: dict[str, Any]) -> tuple[bool, list[str]]
         reasons.append("numeric_keypad_not_confirmed")
     if _coerce_bool(record.get("keyboard_backlight")) is not True:
         reasons.append("keyboard_backlight_not_confirmed")
+    # Machinike 硬性字段：CPU 必须含具体型号（如 i9-13900HX，非家族词 i9）——
+    # 用户要求"CPU 型号必须存在"；无具体型号的记录不发布
+    if "Machinike" in atomic_sources(record):
+        _cpu = str(record.get("cpu") or "")
+        if not re.search(r"\d{3,5}", _cpu):
+            reasons.append("machinike_cpu_model_missing")
     # 小屏数字键盘存疑规则：≤15.5 寸 + 数字键盘 = 可疑组合（14寸空间难有独立数字键盘）。
     # 用户铁律：必须找品牌官网解析验证（official_verified=True）才发布——多源交叉也豁免不了；
     # 未验证的此类条目一律拒绝（供监控/异步官网验证回填）
