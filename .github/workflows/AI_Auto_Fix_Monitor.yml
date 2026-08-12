@@ -193,9 +193,11 @@ jobs:
           if not repo:
               raise SystemExit(0)
           now = datetime.datetime.now(datetime.timezone.utc)
+          # gh run list 默认不返回 in_progress run（实测 gh 2.45 只列已完成）——
+          # zombie 检测必须显式 --status in_progress，否则永远看不到运行中 run。
           out = subprocess.run(
-              ["gh", "run", "list", "--repo", repo, "--limit", "15",
-               "--json", "databaseId,status,updatedAt,workflowName"],
+              ["gh", "run", "list", "--repo", repo, "--status", "in_progress",
+               "--limit", "50", "--json", "databaseId,status,updatedAt,workflowName"],
               capture_output=True, text=True, timeout=60,
           )
           if out.returncode != 0:
