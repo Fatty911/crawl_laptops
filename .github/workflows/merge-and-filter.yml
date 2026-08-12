@@ -64,7 +64,7 @@ jobs:
             --artifact-prefix zol-data- \
             --output data/raw/zol/latest.json \
             --min-records 50 \
-            2> >(tee "$RUNNER_TEMP/zol-artifact.err" >&2)
+            > "$RUNNER_TEMP/zol-artifact.err" 2>&1
           zol_status=$?
           python scripts/download_latest_crawler_artifact.py \
             --repo "$GITHUB_REPOSITORY" \
@@ -72,7 +72,7 @@ jobs:
             --artifact-prefix jd-data- \
             --output data/raw/jd/latest.json \
             --min-records 50 \
-            2> >(tee "$RUNNER_TEMP/jd-artifact.err" >&2)
+            > "$RUNNER_TEMP/jd-artifact.err" 2>&1
           jd_status=$?
           python scripts/download_latest_crawler_artifact.py \
             --repo "$GITHUB_REPOSITORY" \
@@ -80,7 +80,7 @@ jobs:
             --artifact-prefix pconline-data- \
             --output data/raw/pconline/latest.json \
             --min-records 50 \
-            2> >(tee "$RUNNER_TEMP/pconline-artifact.err" >&2)
+            > "$RUNNER_TEMP/pconline-artifact.err" 2>&1
           pconline_status=$?
           # catalog 全量库（五年机型）：若存在则下载并合并到 PConline raw
           python scripts/download_latest_crawler_artifact.py \
@@ -89,7 +89,7 @@ jobs:
             --artifact-prefix pconline-catalog-data- \
             --output data/raw/pconline/catalog.json \
             --min-records 1 \
-            2> >(tee "$RUNNER_TEMP/pconline-catalog-artifact.err" >&2)
+            > "$RUNNER_TEMP/pconline-catalog-artifact.err" 2>&1
           catalog_status=$?
           # PConline 搜索补充（ZOL 系列名搜索）：下载并合并
           python scripts/download_latest_crawler_artifact.py \
@@ -98,7 +98,7 @@ jobs:
             --artifact-prefix pconline-search-data- \
             --output data/raw/pconline/search.json \
             --min-records 1 \
-            2> >(tee "$RUNNER_TEMP/pconline-search-artifact.err" >&2)
+            > "$RUNNER_TEMP/pconline-search-artifact.err" 2>&1
           search_status=$?
           if [ "$catalog_status" -eq 0 ] && [ -s data/raw/pconline/catalog.json ]; then
             python scripts/merge_pconline_catalog.py
@@ -112,7 +112,7 @@ jobs:
             --artifact-prefix machenike-data- \
             --output data/raw/machenike/latest.json \
             --min-records 5 \
-            2> >(tee "$RUNNER_TEMP/machenike-artifact.err" >&2) || true
+            > "$RUNNER_TEMP/machenike-artifact.err" 2>&1 || true
           machinike_ok=$?
           if [ "$machinike_ok" -eq 0 ] && [ -s data/raw/machenike/latest.json ]; then
             echo "Machinike artifact ready"

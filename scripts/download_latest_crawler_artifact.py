@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 try:
     from scripts.merge_data import load_records
@@ -87,6 +89,12 @@ def main() -> int:
         print("GITHUB_TOKEN is required", file=sys.stderr)
         return 2
     session = requests.Session()
+    retries = Retry(total=3, backoff_factor=1.5,
+                    status_forcelist=(429, 500, 502, 503, 504),
+                    allowed_methods=frozenset(["GET"]),
+                    raise_on_status=False)
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+    session.mount("http://", HTTPAdapter(max_retries=retries))
     session.headers.update(
         {
             "Authorization": f"Bearer {token}",
