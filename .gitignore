@@ -18,6 +18,7 @@ scripts/monitor_*.log
 crawl_state/
 
 # 运行时中间产物
+multi-source-report.json
 mse_patch_out.json
 mse_prompt.md
 gap_count.txt

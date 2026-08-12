@@ -72,7 +72,7 @@ def main() -> int:
             body = json.dumps({
                 "model": "kimi-k2.7-code",
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 1000,
+                "max_tokens": 12000,  # Kimi reasoning 会吃光小预算导致 content 空（实锤）
             }).encode()
             req = urllib.request.Request(
                 "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions",
