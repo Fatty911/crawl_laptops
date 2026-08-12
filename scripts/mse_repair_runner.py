@@ -172,8 +172,18 @@ def main() -> int:
             {"type": "strip_suffix", "pattern": "/(\\d+(\\.\\d+)?K|\\d+Hz|OLED|\\d+K屏)"},
             {"type": "normalize_case", "detail": "统一小写、去空格连字符、Pro/PRO→pro"},
         ]
-    if not apply_rules(rules):
+    applied = apply_rules(rules)
+    if not applied:
         return 6
+    diff_text = _run(["git", "diff", "HEAD"]).stdout
+    if not diff_text.strip():
+        # 规则已在仓库（上轮已应用并提交）：无需重复提交，正常完成。
+        # 之前这里继续 commit 无变更 → git commit 失败 → exit 9（误报 failure）。
+        print("[mse-repair] rules already committed; no diff — round complete")
+        # 仍触发一次 merge 重跑验证实际合并效果（幂等，merge 本身可重复）
+        if not trigger_merge_and_wait():
+            print("[mse-repair] merge rerun failed; next cron re-scans")
+        return 0
     # ai_pconline_repair 测试在 runner 环境（RUNNER_TEMP 存在）会误报
     # "sandbox output path must live under RUNNER_TEMP"——清除该变量模拟本地行为
     env_no_temp = {**os.environ}
@@ -185,10 +195,9 @@ def main() -> int:
         # 保留改动不恢复：失败详情留给日志；下轮 cron 幂等跳过应用后重试
         print(f"[mse-repair] tests failed:\n{tp.stdout[-1500:]}\n{tp.stderr[-800:]}")
         return 8
-    diff_text = _run(["git", "diff", "HEAD"]).stdout
     sha = hashlib.sha256(diff_text.encode()).hexdigest()
     reviews = review_patch(diff_text, sha)
-    # 评审为软性记录：FAIL 也提交（确定性规则已过 287 测试，merge 重跑验证实际效果）
+    # 评审为软性记录：FAIL 也提交（确定性规则已过测试，merge 重跑验证实际效果）
     if not commit_with_trailers(sha, reviews, "fix(mse): merge_data 归一化增强（兼容重叠合并）"):
         return 9
     if not trigger_merge_and_wait():
