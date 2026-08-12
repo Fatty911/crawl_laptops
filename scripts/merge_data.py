@@ -541,9 +541,14 @@ def _record_cpu_voltage(record: dict[str, Any]) -> str:
 
 def meets_publish_requirements(record: dict[str, Any]) -> tuple[bool, list[str]]:
     reasons: list[str] = []
-    if _coerce_bool(record.get("numeric_keypad")) is not True:
+    _srcs = atomic_sources(record)
+    # ZOL×PConline 多源匹配豁免：用户要求"ZOL和PConline(未验证键盘)匹配率高就行"——
+    # 匹配上的多源记录键盘未验证不阻断发布（前端标注 PConline(未验证键盘)）。
+    # 单源/其它组合仍按原规则（键盘必须确认）。
+    _zol_pcl_multi = {"ZOL", "PConline"}.issubset(_srcs)
+    if _coerce_bool(record.get("numeric_keypad")) is not True and not _zol_pcl_multi:
         reasons.append("numeric_keypad_not_confirmed")
-    if _coerce_bool(record.get("keyboard_backlight")) is not True:
+    if _coerce_bool(record.get("keyboard_backlight")) is not True and not _zol_pcl_multi:
         reasons.append("keyboard_backlight_not_confirmed")
     # Machinike 硬性字段：CPU 必须含具体型号（如 i9-13900HX，非家族词 i9）——
     # 用户要求"CPU 型号必须存在"；无具体型号的记录不发布
