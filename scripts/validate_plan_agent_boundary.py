@@ -281,6 +281,14 @@ def validate_repository(root: Path = ROOT) -> list[str]:
                 if marker in lowered:
                     errors.append(f"{path.relative_to(root)}: direct Plan endpoint is present: {marker}")
             for match in _plan_key_matches(text):
+                # ai_providers.py 是端点池唯一事实源：只声明 key_env 元数据
+                # （供 Agent 步骤 env 注入），不读取 Plan key 环境变量。
+                # 豁免条件：不以 os.getenv( / os.environ[ / os.environ.get( 读取任何环境变量。
+                if path.name == "ai_providers.py" and not re.search(
+                    r"os\.(?:getenv\(|environ\[|environ\.get\()",
+                    text,
+                ):
+                    continue
                 errors.append(f"{path.relative_to(root)}: production Python script references Plan key {match.group('name')}")
     return errors
 
