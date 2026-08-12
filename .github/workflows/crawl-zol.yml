@@ -155,14 +155,17 @@ jobs:
             git add -f crawl_state/zol/
             git diff --cached --quiet || git commit -m "chore: update ZOL crawl progress [skip ci]"
             bash scripts/git_sync_progress.sh "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-            # 部分完成但已有足够数据：也上传 artifact（min_records 由下载端保证）
+            # 部分完成（exit 10）：上传为 zol-partial-*（保留进度 artifact 供追溯），
+            # 但 merge 只消费 zol-data-*（完整 run 产物）——部分榜单会让 merge
+            # 用不完整数据导致 superset shrink（168/2202 条 → 111 << 基线 303 实锤）。
             if [ -s data/raw/zol/latest.json ] && [ "$(python3 -c "import json;print(len(json.load(open('data/raw/zol/latest.json',encoding='utf-8'))))" 2>/dev/null)" -ge 50 ]; then
-              echo "部分数据已满足发布下限，上传 artifact"
-              echo "complete=true" >> "$GITHUB_OUTPUT"
+              echo "部分数据存在，上传为 zol-partial-*（merge 不消费）"
+              echo "partial=true" >> "$GITHUB_OUTPUT"
             else
               echo "数据不足 50 条，本次不上传"
-              echo "complete=false" >> "$GITHUB_OUTPUT"
+              echo "partial=false" >> "$GITHUB_OUTPUT"
             fi
+            echo "complete=false" >> "$GITHUB_OUTPUT"
             exit 0
           elif [ $EXIT_CODE -ne 0 ]; then
             echo "complete=false" >> "$GITHUB_OUTPUT"
@@ -178,9 +181,18 @@ jobs:
         run: python scripts/setup_proxy_runtime.py --clear
 
       - name: Set artifact date
-        if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
+        if: steps.window.outputs.skip != 'true' && (steps.step1.outputs.complete == 'true' || steps.step1.outputs.partial == 'true')
         id: date
         run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload partial progress data (not consumed by merge)
+        if: steps.window.outputs.skip != 'true' && steps.step1.outputs.partial == 'true'
+        uses: actions/upload-artifact@main
+        with:
+          name: zol-partial-${{ steps.date.outputs.date }}
+          path: data/raw/zol/latest.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload crawler data
         if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'

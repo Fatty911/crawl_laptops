@@ -900,7 +900,7 @@ def check_mutable_merge_run(before_run: str, after_run: str, step_name: str) -> 
         "--workflow crawl-pconline.yml \\",
         "--artifact-prefix pconline-data- \\",
         "--output data/raw/pconline/latest.json \\",
-        '2> >(tee "$RUNNER_TEMP/pconline-artifact.err" >&2)',
+        '> "$RUNNER_TEMP/pconline-artifact.err" 2>&1',
         "pconline_status=$?",
         '[ "$pconline_status" -ne 0 ] &&',
         'grep -Fq "no unexpired artifact" "$RUNNER_TEMP/jd-artifact.err" &&',
@@ -914,7 +914,7 @@ def check_mutable_merge_run(before_run: str, after_run: str, step_name: str) -> 
         "--workflow crawl-machenike.yml " + "\\",
         "--artifact-prefix machenike-data- " + "\\",
         "--output data/raw/machenike/latest.json " + "\\",
-        '2> >(tee "$RUNNER_TEMP/machenike-artifact.err" >&2) || true',
+        '> "$RUNNER_TEMP/machenike-artifact.err" 2>&1 || true',
         "machinike_ok=$?",
         'if [ "$jd_status" -ne 0 ]; then',
         'exit "$jd_status"',
@@ -1311,7 +1311,7 @@ def apply_deterministic_edits(worktree: Path) -> None:
             --artifact-prefix pconline-data- \\
             --output data/raw/pconline/latest.json \\
             --min-records 50 \\
-            2> >(tee "$RUNNER_TEMP/pconline-artifact.err" >&2)
+            > "$RUNNER_TEMP/pconline-artifact.err" 2>&1
           pconline_status=$?
 ''',
         ),

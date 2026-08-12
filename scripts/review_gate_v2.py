@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, "/root/.config/opencode/scripts")
+import re
 import review_gate as rg
 
 
