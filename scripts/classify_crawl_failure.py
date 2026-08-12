@@ -115,6 +115,32 @@ def max_progress_amount(text: str) -> int:
     return max(values, default=0)
 
 
+# merge/deploy 链失败专属分类（管道故障 ≠ 站点解析损坏）：
+# 日志含这些特征时优先判定为管道/门禁问题，Repair Agent 聚焦 workflow/artifact 逻辑。
+MERGE_PIPELINE_PATTERNS = [
+    r"publish shrink detected",
+    r"refusing merge",
+    r"artifact download failed",
+    r"no unexpired artifact",
+    r"replayed shell line",
+    r"unapproved shell line",
+    r"mutable merge step",
+    r"repeated PConline integration",
+    r"superset",
+    r"baseline",
+    r"retention must be",
+    r"verify_publish_superset",
+    r"preserve_publish_baseline",
+]
+
+
+def classify_pipeline(text: str) -> tuple[str, str] | None:
+    """merge/deploy 链专用分类：命中管道特征返回 (分类, 原因)，否则 None。"""
+    if matches_any(MERGE_PIPELINE_PATTERNS, text):
+        return "merge_pipeline_failure", "日志显示 merge/deploy 链管道或门禁异常（artifact/竞态/superset），需修复 workflow 逻辑"
+    return None
+
+
 def classify(text: str, progress_threshold: int) -> tuple[str, str]:
     if not text.strip():
         return "unknown", "日志为空，无法判断是否为主动分段退出"

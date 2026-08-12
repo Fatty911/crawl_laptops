@@ -56,6 +56,17 @@ def read_logs(paths: list[str]) -> str:
 
 def classify_run(workflow_name: str, conclusion: str, text: str) -> tuple[str, str, bool]:
     if conclusion == "failure":
+        # merge/deploy 链（非爬虫源）失败优先按管道故障分类，避免
+        # 403/404/500 等 HTTP 状态码被误判为站点解析损坏（site_breakage）
+        # 而让 Repair Agent 去查错误的代码方向。
+        try:
+            from scripts.classify_crawl_failure import classify_pipeline
+        except ImportError:
+            from classify_crawl_failure import classify_pipeline
+        pipeline = classify_pipeline(text)
+        if pipeline is not None:
+            classification, reason = pipeline
+            return classification, reason, True
         classification, reason = classify(text, progress_threshold=200)
         return classification, reason, classification in {"site_breakage", "unknown"}
     if conclusion == "success":

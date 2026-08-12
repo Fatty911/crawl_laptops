@@ -222,7 +222,8 @@ jobs:
           steps.classify.outputs.should_diagnose == 'true' &&
           (steps.classify.outputs.classification == 'site_breakage' ||
            steps.classify.outputs.classification == 'unknown' ||
-           steps.classify.outputs.classification == 'low_output')
+           steps.classify.outputs.classification == 'low_output' ||
+           steps.classify.outputs.classification == 'merge_pipeline_failure')
         run: |-
           EXCERPT=""
           if [ -s workflow_error.log ]; then
@@ -271,7 +272,8 @@ jobs:
         id: self_repair
         if: >-
           steps.repair_prompt.outputs.should_repair == 'true' &&
-          steps.repair_agent.outcome == 'success'
+          (steps.repair_agent.outcome == 'success' ||
+           steps.repair_agent_ark.outcome == 'success')
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.ACTION_PAT || github.token }}
