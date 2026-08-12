@@ -84,9 +84,25 @@ def check_regex_escapes():
             src = Path(ROOT, f).read_text(encoding="utf-8")
         except Exception:
             continue
-        for i, line in enumerate(src.splitlines(), 1):
-            if re.search(r'r"[^"]*\\\\[sd]', line) and "chr(92)" not in line:
-                issues.append("  %s:%d: raw 字符串含双反斜杠 %s" % (f, i, line.strip()[:60]))
+        # 用 tokenize 识别真正的 raw 字符串字面量（正则扫行会把普通三引号模板里
+        # 的 r"..." 文本误判为 raw——mse_repair_runner 的 RULE_IMPLS 模板即此类）。
+        import io
+        import tokenize
+        try:
+            tokens = tokenize.generate_tokens(io.StringIO(src).readline)
+            for tok in tokens:
+                if tok.type != tokenize.STRING:
+                    continue
+                raw_text = tok.string
+                is_raw = raw_text.startswith(("r\"", "R\"", "r'", "R'"))
+                if is_raw and re.search(r"[\\][sd]", raw_text[2:-1]) and "chr(92)" not in raw_text:
+                    issues.append("  %s:%d: raw 字符串含双反斜杠 %s" % (f, tok.start[0], raw_text.strip()[:60]))
+        except (tokenize.TokenError, IndentationError, SyntaxError):
+            # 解析失败时回退行级扫描（仅限真实 raw 字面量行）
+            for i, line in enumerate(src.splitlines(), 1):
+                stripped = line.lstrip()
+                if stripped.startswith(("r\"", "R\"")) and re.search(r"[\\][sd]", line) and "chr(92)" not in line:
+                    issues.append("  %s:%d: raw 字符串含双反斜杠 %s" % (f, i, line.strip()[:60]))
     return "\n".join(issues) if issues else "未发现 raw 字符串双反斜杠问题"
 
 

@@ -33,7 +33,7 @@ RULE_IMPLS = {
             break
 ''',
     "strip_suffix": '''    # MSE 增强：剥离屏幕规格后缀（/2.5K /240Hz /OLED /2.5K屏）
-    family = re.sub(r"/(?:\\d+(?:\\.\\d+)?K|\\d+Hz|OLED|\\d+K屏)+$", "", family)
+    family = re.sub(r"(?:/\\d+(?:\\.\\d+)?K|/\\d+Hz|/OLED|/\\d+K屏)+$", "", family)
 ''',
     "normalize_case": '''    # MSE 增强：统一大小写与空白（Pro/PRO→pro、去连字符空格）
     family = re.sub(r"\\s+", "", family).replace("-", "").lower()
@@ -122,7 +122,7 @@ def commit_with_trailers(diff_sha: str, reviews: list[dict], message: str) -> bo
         trailers.append(f"Review-Model-Family-{i}: {rv['family']}")
         trailers.append(f"Review-Result-{i}: {rv['result']}")
     if not trailers:
-        trailers.append("Verified: pytest 287 passed; merge rerun validates actual merge result")
+        trailers.append("Verified: pytest suite + merge rerun validates actual merge result")
     msg = message + "\n\n" + "\n".join(trailers) + f"\nReviewed-Diff-SHA256: {diff_sha}\n"
     r = _run(["git", "commit", "-m", msg], cwd=ROOT)
     if r.returncode != 0:
