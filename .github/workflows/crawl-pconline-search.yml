@@ -47,8 +47,13 @@ jobs:
 
       - name: Crawl PConline search supplements
         run: |
+          # 发布集优先：Pages 单源 ZOL 机型的搜索词先搜（直接提升多源率）
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://nbs.jiucai.eu.org/data/latest.json" \
+            -o data/raw/pages_latest.json || true
           python scripts/crawl_pconline_search.py \
             --zol-input data/raw/zol/latest.json \
+            --published-first data/raw/pages_latest.json \
             --output data/raw/pconline/search.json \
             --max-searches 600 \
             --delay 0.2

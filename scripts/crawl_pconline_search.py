@@ -159,42 +159,98 @@ def main() -> int:
     parser.add_argument("--zol-input", required=True, help="ZOL raw JSON")
     parser.add_argument("--output", default="data/raw/pconline/search.json")
     parser.add_argument("--max-searches", type=int, default=600)
+    parser.add_argument(
+        "--published-first",
+        default="",
+        help="Pages 发布集 ZOL 单源 JSON：其搜索词优先（提升多源率的关键路径）",
+    )
     parser.add_argument("--delay", type=float, default=0.5)
     args = parser.parse_args()
 
     zol = json.loads(Path(args.zol_input).read_text(encoding="utf-8"))
     zol_items = zol.get("items", zol) if isinstance(zol, dict) else zol
 
-    # 提取系列名（品牌 + 型号，空格分隔）——双模式：
-    # 1) 中文品牌 + 英文型号（联想拯救者 Y7000P / 华硕天选6 Pro）
+    # 提取系列名（品牌 + 型号，空格分隔）——支持：
+    # 1) 中文品牌 + 中文/混合型号（华硕 天选6 Pro / 联想 拯救者Y7000P / 神舟 战神S8）
     # 2) 英文品牌 + 英文型号（ThinkPad T14p / HUAWEI MateBook）
+    # 3) 英文品牌 + 中文系列（Acer 暗影骑士·擎 / ROG 枪神9 / msi微星魔影15）
     queries: list[str] = []
     seen: set[str] = set()
-    en_brands = ("ThinkPad", "ThinkBook", "HUAWEI", "ROG", "Redmi", "Acer", "Alienware", "LG", "Xiaomi", "VAIO", "MacBook", "HP", "ASUS", "DELL")
+    en_brands = ("ThinkPad", "ThinkBook", "HUAWEI", "ROG", "Redmi", "Acer", "Alienware", "LG", "Xiaomi", "VAIO", "MacBook", "HP", "ASUS", "DELL", "MSI", "Lenovo")
+    cn_brands = ("联想", "华硕", "惠普", "戴尔", "宏碁", "神舟", "机械革命", "七彩虹", "微星", "雷神", "荣耀", "华为", "小米", "微软", "三星", "机械师", "火影", "吾空", "Acer宏碁")
+    # 英文品牌后接中文系列（ROG 枪神9 / Acer 暗影骑士 / msi微星魔影15 / HP(惠普)）
+    en_cn = (("ROG", "枪神", "魔霸", "幻"), ("Acer", "暗影骑士", "掠夺者", "战斧"), ("msi", "微星魔影"), ("MSI", "微星"), ("HP", "暗影精灵", "光影精灵", "星"), ("Lenovo", "拯救者", "小新", "ThinkBook", "扬天", "昭阳"), ("DELL", "游匣", "灵越"), ("ASUS", "天选", "无畏", "灵耀", "华硕"))
+    # 括号双品牌格式：lenovo(联想)G5000 / HP(惠普)暗影精灵
+    bracket_brands = (("lenovo", "联想"), ("hp", "惠普"), ("acer", "宏碁"), ("msi", "微星"), ("dell", "戴尔"), ("asus", "华硕"))
+
+    def _extract_query(title: str) -> str | None:
+        # 英文品牌 + 英文型号
+        for b in en_brands:
+            if title.startswith(b) and len(title) > len(b):
+                rest = title[len(b):].strip()
+                m = re.match(r"([A-Za-z0-9]+(?:\s*\+)?(?:\s*[- ]?[A-Za-z0-9]+)*)", rest)
+                if m and m.group(1):
+                    q = f"{b} {m.group(1)}".strip()
+                    if len(q) >= 4:
+                        return q
+        # 英文品牌 + 中文系列
+        for b, *cns in en_cn:
+            prefix = title[:len(b)]
+            if prefix.lower() == b.lower() or title.startswith(b):
+                rest = title[len(b):].strip()
+                # 跳过括号品牌（HP(惠普)）
+                rest = re.sub(r"^[（(][^）)]*[）)]", "", rest).strip()
+                m = re.match(r"([\u4e00-\u9fffA-Za-z0-9·]+(?:\s*[\u4e00-\u9fffA-Za-z0-9·]+)*)", rest)
+                if m:
+                    q = f"{b} {m.group(1)}".strip()
+                    if len(q) >= 4:
+                        return q
+        # 括号双品牌：lenovo(联想)G5000
+        low = title.lower()
+        for b, cn in bracket_brands:
+            if low.startswith(b + "(") and cn in title[:12]:
+                rest = title[title.find(")") + 1:].strip()
+                m = re.match(r"([\u4e00-\u9fffA-Za-z0-9·]+(?:\s*[\u4e00-\u9fffA-Za-z0-9·]+)*)", rest)
+                if m:
+                    q = f"{cn} {m.group(1)}".strip()
+                    if len(q) >= 4:
+                        return q
+        # 中文品牌 + 系列
+        for b in cn_brands:
+            if title.startswith(b) and len(title) > len(b):
+                rest = title[len(b):].strip()
+                m = re.match(r"([\u4e00-\u9fffA-Za-z0-9·]+(?:\s*[\u4e00-\u9fffA-Za-z0-9·]+)*)", rest)
+                if m:
+                    q = f"{b} {m.group(1)}".strip()
+                    if len(q) >= 4:
+                        return q
+        return None
+
+    published_queries: list[str] = []
+    if args.published_first:
+        try:
+            pub = json.loads(Path(args.published_first).read_text(encoding="utf-8"))
+            pub_items = pub.get("items", pub) if isinstance(pub, dict) else pub
+            for r in pub_items:
+                q = _extract_query(str(r.get("title", "")))
+                if q and q not in seen:
+                    seen.add(q)
+                    published_queries.append(q)
+        except Exception as exc:
+            print(f"published-first 加载失败，忽略: {exc}", file=sys.stderr)
+
     for r in zol_items:
         title = str(r.get("title", ""))
-        q = None
-        m = re.match(
-            r"([\u4e00-\u9fff]{2,6})\s*([A-Za-z][A-Za-z0-9]*(?:\s*\+)?\s*[- ]?\d{0,4}[A-Za-z0-9]*)",
-            title,
-        )
-        if m:
-            q = f"{m.group(1)} {m.group(2)}".strip()
-        else:
-            for b in en_brands:
-                if title.startswith(b):
-                    rest = title[len(b):].strip()
-                    rm = re.match(r"([A-Za-z0-9]+(?:\s*\+)?\s*[- ]?\d{0,4}[A-Za-z0-9]*)", rest)
-                    if rm:
-                        q = f"{b} {rm.group(1)}".strip()
-                    break
-        if q and len(q) >= 4 and q not in seen:
+        q = _extract_query(title)
+        if q and q not in seen:
             seen.add(q)
             queries.append(q)
-        if len(queries) >= args.max_searches:
+        if len(queries) + len(published_queries) >= args.max_searches:
             break
 
-    print(f"搜索词: {len(queries)}", file=sys.stderr)
+    # 发布集优先：先搜 Pages 单源机型（直接提升多源率），再补 raw 其余
+    queries = published_queries + queries[: max(0, args.max_searches - len(published_queries))]
+    print(f"搜索词: {len(queries)}（发布集优先 {len(published_queries)}）", file=sys.stderr)
     session = make_session()
     results: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
