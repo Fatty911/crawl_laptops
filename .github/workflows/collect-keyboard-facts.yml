@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   collect:
+    if: false  # CNB 为工作流主力，GitHub Actions 禁跑爬虫/AI 自修复
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
