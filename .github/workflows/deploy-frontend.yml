@@ -1,13 +1,12 @@
-# ── GitHub Actions 硬开关（2026-10-05 用户裁定）────────────────────────
-# GitHub 账户曾因反滥用机制误伤暂停，爬虫/AI 自修复禁止在 Actions 运行。
-# 工作流主力 = 腾讯云 CNB（.cnb.yml）。此处 if:false 防止 UI 误开后仍执行。
-# 七端代码对等同步，仅工作流免费资源不同。
 name: Deploy Frontend
 
 # 前端展示改动独立部署路径：push 只改 docs/**（前端 UI/脚本/样式）时
 # 直接部署 Pages，复用最新已发布 release 数据，不依赖爬取/merge 状态。
 # 数据更新仍走原链：crawl → merge → release(published) → Deploy Pages。
 on:
+  release:
+    types: [published]
+
   workflow_dispatch:
   push:
     branches: [main]
@@ -19,7 +18,6 @@ permissions: {}
 
 jobs:
   deploy:
-    if: false  # CNB 为工作流主力，GitHub Actions 禁跑爬虫/AI 自修复
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
