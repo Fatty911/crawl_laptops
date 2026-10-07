@@ -352,7 +352,6 @@ main:
           script: python scripts/setup_proxy_runtime.py --clear 2>/dev/null || true
 
 
-      failStages:
         - name: 诊断-收集失败上下文
           script: |
             {
