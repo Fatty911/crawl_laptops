@@ -71,7 +71,8 @@ class ClashConfigGenerator:
                     "User-Agent": SUBSCRIPTION_USER_AGENT,
                     "Accept": "text/plain,application/yaml,application/json,*/*",
                 },
-                timeout=30,
+                # 订阅源 sub.jiucai.eu.org 实测 26-40s（CNB 出口更慢），30s 卡边缘，放宽到 120s
+                timeout=120,
             )
             response.raise_for_status()
         except requests.RequestException as exc:
