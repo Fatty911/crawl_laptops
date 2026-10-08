@@ -38,11 +38,19 @@ DETERMINISTIC_NEW_FILES = {".github/workflows/crawl-pconline.yml"}
 # sandbox lifecycle are fixed by this generator rather than authored by the
 # model.  Keep this in the production generator instead of importing the test
 # fixture, so every generated patch receives the same trusted shape.
-PCONLINE_WORKFLOW_TEMPLATE = """name: Crawl PConline
+PCONLINE_WORKFLOW_TEMPLATE = """# ── GitHub Actions 硬开关（2026-10-05 用户裁定）────────────────────────
+# GitHub 账户曾因反滥用机制误伤暂停，爬虫/AI 自修复禁止在 Actions 运行。
+# 工作流主力 = 腾讯云 CNB（.cnb.yml）。此处 if:false 防止 UI 误开后仍执行。
+# 七端代码对等同步，仅工作流免费资源不同。
+name: Crawl PConline
 
 on:
   workflow_dispatch:
     inputs:
+      catalog:
+        description: '抓取全量产品库（五年机型，s1 分页）而非热门榜'
+        required: false
+        default: 'false'
       force_restart:
         description: '强制重新开始（清除增量进度）'
         required: false
@@ -83,6 +91,7 @@ env:
 
 jobs:
   crawl:
+    if: false  # CNB 为工作流主力，GitHub Actions 禁跑爬虫/AI 自修复
     runs-on: ubuntu-latest
     timeout-minutes: 390
     steps:
@@ -151,8 +160,7 @@ jobs:
             exit 0
           fi
           set +e
-          python scripts/ai_pconline_repair.py run-sandboxed             --out "$RUNNER_TEMP/ai-sandbox-out" --             python scripts/crawl_pconline.py             --output /out/latest.json             --time-limit "$RUN_TIME"             --max-items "$MAX_ITEMS"             --min-records 50
-          EXIT_CODE=$?
+          python scripts/ai_pconline_repair.py run-sandboxed             --out "$RUNNER_TEMP/ai-sandbox-out" --             python scripts/crawl_pconline.py             --output /out/latest.json             --time-limit "$RUN_TIME"             --max-items "$MAX_ITEMS"             --min-records 50             ${{ github.event.inputs.catalog == 'true' && '--catalog' || '' }}          EXIT_CODE=$?
           set -e
           echo "PConline crawl exit code: $EXIT_CODE"
           if [ $EXIT_CODE -ne 0 ]; then
@@ -172,6 +180,15 @@ jobs:
         if: always()
         run: python scripts/setup_proxy_runtime.py --clear
 
+      - name: Set artifact name
+        id: artname
+        run: |
+          if [ "${{ github.event.inputs.catalog }}" = "true" ]; then
+            echo "prefix=pconline-catalog-data-" >> "$GITHUB_OUTPUT"
+          else
+            echo "prefix=pconline-data-" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set artifact date
         if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
         id: date
@@ -181,7 +198,7 @@ jobs:
         if: steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'
         uses: actions/upload-artifact@main
         with:
-          name: pconline-data-${{ steps.date.outputs.date }}
+          name: ${{ steps.artname.outputs.prefix }}${{ steps.date.outputs.date }}
           path: data/raw/pconline/latest.json
           if-no-files-found: error
           retention-days: 30
@@ -1073,7 +1090,7 @@ def check_new_workflow(repo: Path) -> None:
     if not isinstance(dispatch, dict) or set(dispatch) != {"inputs"}:
         fail("PConline workflow_dispatch must have a fixed inputs dict")
     inputs = dispatch.get("inputs", {})
-    expected_inputs = {"force_restart", "run_profile", "max_items", "debug_mode"}
+    expected_inputs = {"force_restart", "run_profile", "max_items", "debug_mode", "catalog"}
     if set(inputs) != expected_inputs:
         fail(f"PConline workflow_dispatch inputs mismatch: expected {expected_inputs}, got {set(inputs)}")
     for inp_name, inp in inputs.items():
@@ -1110,8 +1127,12 @@ def check_new_workflow(repo: Path) -> None:
     if not isinstance(jobs, dict) or set(jobs) != {"crawl"}:
         fail("PConline workflow must contain only the controlled crawl job")
     job = jobs["crawl"]
-    if not isinstance(job, dict) or set(job) != {"runs-on", "timeout-minutes", "steps"}:
+    if not isinstance(job, dict) or set(job) != {"if", "runs-on", "timeout-minutes", "steps"}:
         fail("PConline crawl job structure expanded")
+    # GitHub Actions 停跑爬虫/AI 自修复（CNB 为工作流主力）是本仓的硬约束：
+    # job 级 if 必须是 false，AI 产出的新工作流不得重新打开 GitHub 侧执行。
+    if job.get("if") is not False and str(job.get("if", "")).strip().lower() != "false":
+        fail("PConline crawl job must stay disabled on GitHub (CNB owns the workflow)")
     if job["runs-on"] != "ubuntu-latest" or job["timeout-minutes"] != 390:
         fail("PConline crawl runner or timeout changed")
     steps = job["steps"]
@@ -1120,11 +1141,14 @@ def check_new_workflow(repo: Path) -> None:
         "Set up Python", "Install dependencies", "Configure required crawler proxy",
         "Clamp step1 runtime to workflow budget", "Crawl popularity ranking",
         "Copy sandbox output", "Clear crawler proxy environment",
-        "Set artifact date", "Upload crawler data",
+        "Set artifact name", "Set artifact date", "Upload crawler data",
     ]
     if not isinstance(steps, list) or [step.get("name") for step in steps] != expected_names:
         fail("PConline workflow steps must exactly match the verified long-run lifecycle")
-    checkout, prepare, window_step, setup_python, install, proxy, clamp, crawl, copy_step, clear, date_step, upload = steps
+    (
+        checkout, prepare, window_step, setup_python, install, proxy, clamp, crawl,
+        copy_step, clear, artname_step, date_step, upload,
+    ) = steps
     if checkout != {
         "name": "Checkout", "uses": "actions/checkout@main", "with": {"persist-credentials": False}
     }:
@@ -1198,6 +1222,13 @@ def check_new_workflow(repo: Path) -> None:
         "run": "python scripts/setup_proxy_runtime.py --clear",
     }:
         fail("PConline proxy cleanup changed")
+    # 产物名前缀由 catalog 输入决定（catalog=true 走 pconline-catalog-data- 前缀），
+    # 必须保留 id=artname 供上传步骤引用。
+    if set(artname_step) != {"name", "id", "run"} or artname_step.get("id") != "artname":
+        fail("PConline artifact name step structure changed")
+    artname_run = str(artname_step.get("run", ""))
+    if "github.event.inputs.catalog" not in artname_run or 'echo "prefix=' not in artname_run:
+        fail("PConline artifact name must derive its prefix from the catalog input")
     if date_step.get("if") != "steps.window.outputs.skip != 'true' && steps.step1.outputs.complete == 'true'":
         fail("PConline artifact date must gate on skip and completion")
     if set(date_step) != {"name", "if", "id", "run"} or date_step.get("id") != "date":
@@ -1209,7 +1240,7 @@ def check_new_workflow(repo: Path) -> None:
     if upload.get("uses") != "actions/upload-artifact@main":
         fail("PConline artifact upload action changed")
     if upload.get("with") != {
-        "name": "pconline-data-${{ steps.date.outputs.date }}",
+        "name": "${{ steps.artname.outputs.prefix }}${{ steps.date.outputs.date }}",
         "path": "data/raw/pconline/latest.json",
         "if-no-files-found": "error",
         "retention-days": 30,
@@ -1297,10 +1328,16 @@ def apply_deterministic_edits(worktree: Path) -> None:
     # failure condition, merge inputs, raw inputs, notes wording.
     path = worktree / ".github/workflows/merge-and-filter.yml"
     source = path.read_text(encoding="utf-8")
+    # 每条替换显式声明「已完成标记」。只比对 new 是否原样存在是不够的：
+    # 已集成文件里的实际排版与 new 有缩进/换行差异时，new 判不中而 old 仍能命中，
+    # 结果是重复插入 pconline 下载块与闸门、并把 JD 的容错条件回退掉（实测非幂等）。
+    # 标记命中即跳过，保证这套脚本化集成编辑幂等。
     replacements = (
         ('workflows: ["Crawl ZOL", "Crawl JD"]',
-         'workflows: ["Crawl ZOL", "Crawl JD", "Crawl PConline"]'),
+         'workflows: ["Crawl ZOL", "Crawl JD", "Crawl PConline"]',
+         '"Crawl PConline"'),
         ("mkdir -p data/raw/zol data/raw/jd",
+         "mkdir -p data/raw/zol data/raw/jd data/raw/pconline",
          "mkdir -p data/raw/zol data/raw/jd data/raw/pconline"),
         (
             "          jd_status=$?\n",
@@ -1314,7 +1351,7 @@ def apply_deterministic_edits(worktree: Path) -> None:
             > "$RUNNER_TEMP/pconline-artifact.err" 2>&1
           pconline_status=$?
 ''',
-        ),
+            "pconline_status=$?"),
         (
             '''             [ "$jd_status" -ne 0 ] &&
              grep -Fq "no unexpired artifact" "$RUNNER_TEMP/zol-artifact.err" &&
@@ -1326,7 +1363,7 @@ def apply_deterministic_edits(worktree: Path) -> None:
              grep -Fq "no unexpired artifact" "$RUNNER_TEMP/jd-artifact.err" &&
              grep -Fq "no unexpired artifact" "$RUNNER_TEMP/pconline-artifact.err"; then
 ''',
-        ),
+            'grep -Fq "no unexpired artifact" "$RUNNER_TEMP/pconline-artifact.err"; then'),
         (
             '''          if [ "$jd_status" -ne 0 ] && ! grep -Fq "no unexpired artifact" "$RUNNER_TEMP/jd-artifact.err"; then
             exit "$jd_status"
@@ -1339,7 +1376,7 @@ def apply_deterministic_edits(worktree: Path) -> None:
             exit "$pconline_status"
           fi
 ''',
-        ),
+            'if [ "$pconline_status" -ne 0 ]; then'),
         (
             '''            data/raw/jd/latest.json \\
             --output data/work/candidate.json \\
@@ -1349,18 +1386,18 @@ def apply_deterministic_edits(worktree: Path) -> None:
             data/raw/machenike/latest.json \\
             --output data/work/candidate.json \\
 ''',
-        ),
+            "data/raw/machenike/latest.json \\"),
         (
             "--raw data/raw/zol/latest.json data/raw/jd/latest.json \\",
             "--raw data/raw/zol/latest.json data/raw/jd/latest.json data/raw/pconline/latest.json data/raw/machenike/latest.json \\",
-        ),
+            "data/raw/pconline/latest.json data/raw/machenike/latest.json \\"),
         (
             "Automated verified dataset from ZOL and JD.",
             "Automated verified dataset from ZOL, JD, and PConline.",
-        ),
+            "and PConline."),
     )
-    for old, new in replacements:
-        if new in source:
+    for old, new, marker in replacements:
+        if marker in source:
             continue
         if old in source:
             source = source.replace(old, new, 1)
@@ -1430,7 +1467,14 @@ def build_integration_patch(repo: Path, new_files: dict[str, str]) -> str:
     # Do not allow model output to alter this security-sensitive workflow.
     # The crawler remains the only model-authored new file.
     new_files = dict(new_files)
-    new_files[".github/workflows/crawl-pconline.yml"] = PCONLINE_WORKFLOW_TEMPLATE
+    # 仓库里已存在的 crawl-pconline.yml 才是「已验证形态」的唯一真源；模板只在文件
+    # 尚未存在时兜底。此前一律写模板，而模板落后于真实形态（缺 catalog 输入、
+    # Set artifact name 步骤、job 级 if:false、--catalog 透传），补丁会把真实工作流
+    # 回退掉。
+    verified = repo / ".github/workflows/crawl-pconline.yml"
+    new_files[".github/workflows/crawl-pconline.yml"] = (
+        verified.read_text(encoding="utf-8") if verified.exists() else PCONLINE_WORKFLOW_TEMPLATE
+    )
     temp_root = os.environ.get("TMPDIR")
     temp_dir = Path(temp_root) if temp_root and Path(temp_root).is_dir() else None
     tmp = Path(tempfile.mkdtemp(prefix="pconline-build-", dir=temp_dir))

