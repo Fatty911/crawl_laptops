@@ -36,7 +36,7 @@ jobs:
       id-token: write
     concurrency:
       group: pages
-      cancel-in-progress: true
+      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -55,7 +55,7 @@ jobs:
       - name: Download latest verified Release
         run: |
           mkdir -p release
-          gh release download data-latest \
+          python scripts/download_verified_release.py --repo "$GITHUB_REPOSITORY" \
             --pattern laptops-latest.json \
             --dir release
 

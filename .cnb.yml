@@ -118,25 +118,29 @@ main:
         - name: 获取线上发布基线
           script: |
             set -e
-            mkdir -p baseline
-            # 仓内 docs/data/latest.json 被 .gitignore:12(docs/data/) 忽略、从不入仓，'{"items":[]}' 空基线会让
-            # preserve/verify 假绿并把线上行数塌到本轮爬取量 → 对齐 GitHub merge-and-filter.yml:99-105（基线=当前已发布数据），拉不到即硬失败
-            for URL in \
-              "https://nbs.jiucai.eu.org/data/latest.json" \
-              "https://crawl-laptops.pages.dev/data/latest.json"; do
-              if curl --fail --show-error --silent --location --retry 3 --retry-all-errors \
-                   --connect-timeout 20 --max-time 300 "$URL" \
-                   -o baseline/laptops-latest.json; then
-                ROWS=$(python -c "import json;d=json.load(open('baseline/laptops-latest.json',encoding='utf-8'));print(len(d['items']))" 2>/dev/null || echo 0)
-                if [ "${ROWS:-0}" -ge 50 ]; then
-                  echo "BASELINE=$URL rows=$ROWS"
-                  exit 0
-                fi
-                echo "⚠️ $URL 基线行数异常（$ROWS），尝试下一个来源"
-              fi
-            done
-            echo "❌ 所有基线来源均不可用，禁止本轮发布（绝不退化为空基线）"
-            exit 1
+            # 只使用最新完整 immutable CNB Release；下载或校验失败即中止，不退回仓内旧 docs/旧 Pages/空数据。
+            rm -rf /tmp/cnb-verified-baseline-assets /tmp/cnb-verified-baseline-site
+            python scripts/download_verified_release.py --repo Fatty911/crawl_laptops --no-legacy --dir /tmp/cnb-verified-baseline-assets
+            python scripts/prepare_cnb_pages.py --archive /tmp/cnb-verified-baseline-assets/verified-site.zip --manifest /tmp/cnb-verified-baseline-assets/manifest.json --site /tmp/cnb-verified-baseline-site
+            python - <<'PY'
+            import json, shutil
+            from pathlib import Path
+            site = Path("/tmp/cnb-verified-baseline-site")
+            manifest = json.loads((site / "data/manifest.json").read_text(encoding="utf-8"))
+            source = site / manifest["files"]["latestJson"]
+            if not source.resolve().is_relative_to(site.resolve()):
+                raise ValueError("baseline path escapes verified site")
+            payload = json.loads(source.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+                raise ValueError("verified baseline must contain an items array")
+            rows = payload["items"]
+            if len(rows) < 50:
+                raise ValueError(f"verified baseline incomplete: {len(rows)} rows < 50")
+            target = Path("baseline/laptops-latest.json")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+            print(f"verified immutable baseline: {len(rows)} rows -> {target}")
+            PY
         - name: 爬取-三源并行
           script: |
             . /tmp/proxy.sh
@@ -478,25 +482,29 @@ main:
         - name: 获取线上发布基线
           script: |
             set -e
-            mkdir -p baseline
-            # 仓内 docs/data/latest.json 被 .gitignore:12(docs/data/) 忽略、从不入仓，'{"items":[]}' 空基线会让
-            # preserve/verify 假绿并把线上行数塌到本轮爬取量 → 对齐 GitHub merge-and-filter.yml:99-105（基线=当前已发布数据），拉不到即硬失败
-            for URL in \
-              "https://nbs.jiucai.eu.org/data/latest.json" \
-              "https://crawl-laptops.pages.dev/data/latest.json"; do
-              if curl --fail --show-error --silent --location --retry 3 --retry-all-errors \
-                   --connect-timeout 20 --max-time 300 "$URL" \
-                   -o baseline/laptops-latest.json; then
-                ROWS=$(python -c "import json;d=json.load(open('baseline/laptops-latest.json',encoding='utf-8'));print(len(d['items']))" 2>/dev/null || echo 0)
-                if [ "${ROWS:-0}" -ge 50 ]; then
-                  echo "BASELINE=$URL rows=$ROWS"
-                  exit 0
-                fi
-                echo "⚠️ $URL 基线行数异常（$ROWS），尝试下一个来源"
-              fi
-            done
-            echo "❌ 所有基线来源均不可用，禁止本轮发布（绝不退化为空基线）"
-            exit 1
+            # 只使用最新完整 immutable CNB Release；下载或校验失败即中止，不退回仓内旧 docs/旧 Pages/空数据。
+            rm -rf /tmp/cnb-verified-baseline-assets /tmp/cnb-verified-baseline-site
+            python scripts/download_verified_release.py --repo Fatty911/crawl_laptops --no-legacy --dir /tmp/cnb-verified-baseline-assets
+            python scripts/prepare_cnb_pages.py --archive /tmp/cnb-verified-baseline-assets/verified-site.zip --manifest /tmp/cnb-verified-baseline-assets/manifest.json --site /tmp/cnb-verified-baseline-site
+            python - <<'PY'
+            import json, shutil
+            from pathlib import Path
+            site = Path("/tmp/cnb-verified-baseline-site")
+            manifest = json.loads((site / "data/manifest.json").read_text(encoding="utf-8"))
+            source = site / manifest["files"]["latestJson"]
+            if not source.resolve().is_relative_to(site.resolve()):
+                raise ValueError("baseline path escapes verified site")
+            payload = json.loads(source.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+                raise ValueError("verified baseline must contain an items array")
+            rows = payload["items"]
+            if len(rows) < 50:
+                raise ValueError(f"verified baseline incomplete: {len(rows)} rows < 50")
+            target = Path("baseline/laptops-latest.json")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+            print(f"verified immutable baseline: {len(rows)} rows -> {target}")
+            PY
         - name: 爬取-三源并行
           script: |
             . /tmp/proxy.sh
